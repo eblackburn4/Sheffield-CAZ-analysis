@@ -9,8 +9,15 @@ library(tidyverse)
 library(hrbrthemes)
 library(ggthemes)
 library(MASS)  # for robust regression
+library(ggmap)
+library(jsonlite)
+library(sf)
+library(chattr)
 
 ## ---------------------------
+
+# simulated RDD chart -----------------------------------------------------
+
 
 #simulate data for RDD graph
 # Set seed for reproducibility of simulated noise
@@ -50,7 +57,7 @@ gap_size <- 1  # Increased gap between the two phases
 phase2_time <- time[(n1 + gap_size + 1):(n1 + gap_size + n2)]
 phase2 <- data.frame(
   date = phase2_time,
-  value = 70 - 0.01*(1:length(phase2_time)) + generate_ar1_noise(length(phase2_time)) # Gentle downward slope
+  value = 70 - 0.0002*(1:length(phase2_time)) + generate_ar1_noise(length(phase2_time)) # Gentle downward slope
 )
 
 #initialize robust linear model for each phase
@@ -69,10 +76,44 @@ ggplot() +
   geom_line(data = phase1, aes(x = date, y = fitted), color = "purple", linewidth= 0.8) +
   geom_line(data = phase2, aes(x = date, y = fitted), color = "purple", linewidth = 0.8) +
   geom_vline(xintercept = change_point, linetype = "dashed", color = "grey30", linewidth = 0.9) +
-  labs(x = "DateTime",
+  labs(x = "Time",
        y = "Pollutant concentration") +
   theme_ipsum(grid = '', axis = FALSE) +
   theme(axis.text.x = element_blank(),
         axis.text.y = element_blank(),
         axis.title.x = element_text(size = 12, hjust = 0.95),
-        axis.title.y = element_text(size = 12, vjust = -2))
+        axis.title.y = element_text(size = 12, vjust = -3))
+
+
+
+# map of sensor locations -------------------------------------------------
+
+#make base map
+
+sheffield <- c(left = - 1.495, bottom = 53.367, right = - 1.445, top = 53.395)
+basemap <- get_stadiamap(sheffield, zoom = 15, maptype="stamen_toner_lite") |> ggmap()
+
+#read in CAZ json
+
+polygon_data <- fromJSON("mapfinal.geojson")
+
+# Extract coordinates
+
+coords <- polygon_data$features$geometry$coordinates[[1]]
+polygon_coords <- coords[1, , ]
+
+# Convert the resulting 24 x 2 matrix into a data frame.
+df_polygon <- as.data.frame(polygon_coords)
+colnames(df_polygon) <- c("lon", "lat")
+
+#plot on base map
+
+basemap + 
+  geom_polygon(data = df_polygon, aes(x = lon, y = lat),
+             fill = 'pink',        
+             color = "red",
+             alpha = 0.5,   
+             size = 1) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank())
+  
