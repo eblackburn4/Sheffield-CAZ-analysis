@@ -1,23 +1,18 @@
 
 ## ---------------------------
-## Purpose of script: code for generation of maps and graphs in diss proposal
+## Purpose of script: code for RDDiT causal inference
 ## Author: Ned Blackburn
-## Date Created: 2025-03-19
+## Date Created: 2025-07-12
 
 options(scipen = 6, digits = 5) 
 library(tidyverse)
 library(hrbrthemes)
-library(ggthemes)
-library(MASS)  # for robust regression
-library(ggmap)
-library(jsonlite)
-library(sf)
-library(chattr)
 
 ## ---------------------------
 
-# simulated RDD chart -----------------------------------------------------
+## ---------------------------
 
+# simulated RDD chart for intro -----------------------------------------------------
 
 #simulate data for RDD graph
 # Set seed for reproducibility of simulated noise
@@ -85,35 +80,3 @@ ggplot() +
         axis.title.y = element_text(size = 12, vjust = -3))
 
 
-
-# map of sensor locations -------------------------------------------------
-
-#make base map
-
-sheffield <- c(left = - 1.495, bottom = 53.367, right = - 1.445, top = 53.395)
-basemap <- get_stadiamap(sheffield, zoom = 15, maptype="stamen_toner_lite") |> ggmap()
-
-#read in CAZ json
-
-polygon_data <- fromJSON("mapfinal.geojson")
-
-# Extract coordinates
-
-coords <- polygon_data$features$geometry$coordinates[[1]]
-polygon_coords <- coords[1, , ]
-
-# Convert the resulting 24 x 2 matrix into a data frame.
-df_polygon <- as.data.frame(polygon_coords)
-colnames(df_polygon) <- c("lon", "lat")
-
-#plot on base map
-
-basemap + 
-  geom_polygon(data = df_polygon, aes(x = lon, y = lat),
-             fill = 'pink',        
-             color = "red",
-             alpha = 0.5,   
-             size = 1) +
-  theme(axis.text.x = element_blank(),
-        axis.text.y = element_blank())
-  
