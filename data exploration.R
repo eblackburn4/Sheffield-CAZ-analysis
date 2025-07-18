@@ -12,104 +12,137 @@ library(ggthemes)
 
 ## ---------------------------
 
-# read in SCC AQ data --------------------------------------------------------
+# read in AQ data from each sensor family --------------------------------------------------------
 
 SCC_sensor_names <- list.files("Data/SCC", pattern = "\\.csv$", full.names = TRUE)
 names(SCC_sensor_names) <- basename(SCC_sensor_names)
 
-#load in all SCC csvs into a single dataframe
-SCC_aq_raw <- map_dfr(SCC_sensor_names, read_csv, .id = "file_id")
+EW_sensor_names <- list.files("Data/eWatch", pattern = "\\.csv$", full.names = TRUE)
+names(EW_sensor_names) <- basename(EW_sensor_names)
+
+defra_sensor_names <- list.files("Data/defra", pattern = "\\.csv$", full.names = TRUE)
+names(defra_sensor_names) <- basename(defra_sensor_names)
+
+AM_sensor_names <- list.files("Data/AMfixed", pattern = "\\.csv$", full.names = TRUE)
+names(AM_sensor_names) <- basename(AM_sensor_names)
 
 
-#reshape so one row = one timestamp
-SCC_aq_long <- SCC_aq_raw |>
-  select(-file_id) |>            
-  group_by(DateTime) |>         
-  summarise(
-    across(
-      .cols   = everything(),
-      .fns    = ~ first(na.omit(.x))
-    ),
-    .groups = "drop"
-  )
+#load in all csvs into a single dataframe for each sensor family and clean up/reformat
 
-#split into one table per pollutant
-pollutants <- c("NO", "NO2", "PM25", "PM10")
+# SCC data
+SCC_aq_raw <- map_dfr(SCC_sensor_names, read_csv, .id = "file_id") |>
+  pivot_longer(
+    cols         = matches("(NO2|PM25)"),
+    names_to     = c("SensorID","Pollutant"),
+    names_pattern= "([^,]+),\\s*(NO2|PM25),.*",
+    values_to    = "Value"
+  ) |>
+  group_by(SensorID, DateTime, Pollutant) |>
+  summarize(Value = first(na.omit(Value)), .groups = "drop") |>
+  pivot_wider(
+    names_from   = Pollutant,
+    values_from  = Value
+  ) |>
+  select(SensorID, DateTime, NO2, PM25)
 
-make_tbl <- function(df, pollutant){
-  df |>
-    select(DateTime, matches(pollutant)) |>
-    rename_with(~ str_remove(.x, "\\s*,.*"), -DateTime)
-}
+# eWatch data
+EW_aq_raw <- map_dfr(EW_sensor_names, read_csv, .id = "file_id") |>
+  select(data.sensor,
+         data.time, 
+         data.universalTime, 
+         data.NO2, 
+         'data.NO2:QC') |>
+  rename(SensorID = data.sensor,
+         DateTime = data.universalTime,
+         NO2      = data.NO2,
+         NO2_QC = `data.NO2:QC`)
+         
+# Defra data
+defra_aq_raw <- map_dfr(defra_sensor_names, read_csv, .id = "file_id") |>
+  select(data.sensor,
+         data.time, 
+         data.universalTime, 
+         data.PM25, 
+         'data.PM25:QC', 
+         data.NO2, 
+         'data.NO2:QC') |>
+  rename(SensorID = data.sensor,
+         DateTime = data.universalTime,
+         NO2      = data.NO2,
+         PM25     = data.PM25,
+         NO2_QC = `data.NO2:QC`,
+         PM25_QC = `data.PM25:QC`)
 
-SCC_NO   <- make_tbl(SCC_aq_long, "NO, 000\\[M\\]")
-SCC_NO2  <- make_tbl(SCC_aq_long, "NO2, DIF\\[M\\]")
-SCC_PM25 <- make_tbl(SCC_aq_long, "PM25, 000\\[M\\]")
-SCC_PM10 <- make_tbl(SCC_aq_long, "PM10, 000\\[M\\]")
 
-#reshape for plotting
+#AQMesh data
+AM_aq_raw <- map_dfr(AM_sensor_names, read_csv, .id = "file_id") |>
+  select(amon.sensor,
+         amon.time, 
+         amon.universalTime, 
+         amon.PM25, 
+         'amon.PM25:QC', 
+         amon.NO2, 
+         'amon.NO2:QC') |>
+  rename(
+    SensorID = amon.sensor,
+    DateTime = amon.universalTime,
+    NO2      = amon.NO2,
+    PM25     = amon.PM25,
+    NO2_QC = `amon.NO2:QC`,
+    PM25_QC = `amon.PM25:QC`)
+  
+#combine into one master df
+master_aq_raw <- bind_rows(
+  SCC_aq_raw |> mutate(family = "SCC"),
+  EW_aq_raw   |> mutate(family = "eWatch"),
+  defra_aq_raw |> mutate(family = "Defra"),
+  AM_aq_raw   |> mutate(family = "AQMesh")
+)
 
-make_tbl_long <- function(df){
-  df |>
-    pivot_longer(
-      cols      = -DateTime,
-      names_to  = c("location", "pollutant", NA, NA),
-      names_sep = ", ",
-      values_to = "value"
-    ) |>
-    select(DateTime, location, value)
-}
+#QC overview
+AM_aq_raw |>
+  filter(NO2_QC != 0) |>
+  group_by(NO2_QC) |>
+  count()
 
-SCC_NO_long   <- make_tbl_long(SCC_NO)
-SCC_NO2_long  <- make_tbl_long(SCC_NO2)
-SCC_PM25_long <- make_tbl_long(SCC_PM25)
-SCC_PM10_long <- make_tbl_long(SCC_PM10)
 
-#plot them
+#various plots
 
-ggplot(SCC_NO_long, aes(x = DateTime, y = value, color = location)) +
+SCC_aq_raw |>
+  filter(SensorID == 'Pond Hill') |>
+  filter(DateTime > '2023-02-10 01:00:00' & DateTime < '2023-03-27 00:00:00') |>
+  ggplot(aes(x = DateTime, y = NO2)) +
   geom_line() +
-  facet_wrap(~location, scales = "free_y") +
-  labs(
-    title = "NO concentrations over time",
-    x = "Date",
-    y = "NO Concentration (ppb)"
+  labs(title = "SCC NO2 Readings", x = "DateTime", y = "NO2 Value") +
+  scale_x_datetime(
+    date_labels = "%d/%m/%Y",
+    date_breaks = "5 days"
   ) +
-  scale_color_viridis_d() +
-  theme_tufte()
+  theme_minimal()
 
-ggplot(SCC_NO2_long, aes(x = DateTime, y = value, color = location)) +
-  geom_line() +
-  facet_wrap(~location, scales = "free_y") +
-  labs(
-    title = "NO2 concentrations over time",
-    x = "Date",
-    y = "NO Concentration (ppb)"
-  ) +
-  scale_color_viridis_d() +
-  theme_tufte()
 
-ggplot(SCC_PM25_long, aes(x = DateTime, y = value, color = location)) +
-  geom_line() +
-  facet_wrap(~location, scales = "free_y") +
-  labs(
-    title = "PM 2.5 concentrations over time",
-    x = "Date",
-    y = "NO Concentration (ppb)"
-  ) +
-  scale_color_viridis_d() +
-  theme_tufte()
 
-ggplot(SCC_PM10_long, aes(x = DateTime, y = value, color = location)) +
-  geom_line() +
-  facet_wrap(~location, scales = "free_y") +
-  labs(
-    title = "PM10 concentrations over time",
-    x = "Date",
-    y = "NO Concentration (ppb)"
-  ) +
-  scale_color_viridis_d() +
-  theme_tufte()
+
+#combine into one master df
+master_aq_raw <- bind_rows(
+  SCC_aq_raw |> mutate(family = "SCC"),
+  EW_aq_raw   |> mutate(family = "eWatch"),
+  defra_aq_raw |> mutate(family = "Defra"),
+  AM_aq_raw   |> mutate(family = "AQMesh")
+)
+
+# read in traffic flow data -----------------------------------------------
+traffic_sensor_names <- list.files("Data/Traffic", pattern = "\\.csv$", full.names = TRUE)
+names(traffic_sensor_names) <- basename(traffic_sensor_names)
+
+#load in all traffic csvs into a single dataframe
+traffic_raw <- map_dfr(traffic_sensor_names, read_csv, .id = "file_id") |>
+  select(-file_id)
+
+traffic_raw |>
+  filter(`flows.flow:QC` != 0) |>
+  group_by(`flows.flow:QC`) |>
+  count()
 
 
 # SCC data uptime plots ---------------------------------------------------
@@ -172,6 +205,32 @@ plot_sensor_uptime <- function(df,
     theme_minimal()
 }
 
+SCC_aq_long <- SCC_aq_raw |>
+  select(-file_id) |>            
+  group_by(DateTime) |>         
+  summarise(
+    across(
+      .cols   = everything(),
+      .fns    = ~ first(na.omit(.x))
+    ),
+    .groups = "drop"
+  )
+
+#split into one table per pollutant
+pollutants <- c("NO", "NO2", "PM25", "PM10")
+
+make_tbl <- function(df, pollutant){
+  df |>
+    select(DateTime, matches(pollutant)) |>
+    rename_with(~ str_remove(.x, "\\s*,.*"), -DateTime)
+}
+
+SCC_NO   <- make_tbl(SCC_aq_long, "NO, 000\\[M\\]")
+SCC_NO2  <- make_tbl(SCC_aq_long, "NO2, DIF\\[M\\]")
+SCC_PM25 <- make_tbl(SCC_aq_long, "PM25, 000\\[M\\]")
+SCC_PM10 <- make_tbl(SCC_aq_long, "PM10, 000\\[M\\]")
+
+
 #plot for all SCC sensors
 plot_sensor_uptime(SCC_NO, 'NO')
 plot_sensor_uptime(SCC_NO2, 'NO2')
@@ -184,8 +243,18 @@ AM_sensor_names <- list.files("Data/AMfixed", pattern = "\\.csv$", full.names = 
 names(AM_sensor_names) <- basename(AM_sensor_names)
 
 #load in all AQM csvs into a single dataframe
-AM_aq_raw <- map_dfr(AM_sensor_names, read_csv, .id = "file_id") |>
-  select(c(amon.sensor, amon.universalTime,amon.PM25,amon.NO2))
+AM_aq_raw <- map_dfr(AM_sensor_names, read_csv, .id = "file_id")
+
+AM_aq_raw |>
+  filter(`amon.PM25:QC` != 0) |>
+  group_by(`amon.PM25:QC`) |>
+  count()
+
+AM_aq_raw |>
+  filter(`amon.NO2:QC` != 0) |>
+  group_by(`amon.NO2:QC`) |>
+  count()
+
 
 #tag based on pollutant measured
 AM_aq_raw <- AM_aq_raw |>
@@ -202,29 +271,29 @@ AM_aq_raw <- AM_aq_raw |>
   ) |>
   ungroup()
 
-# 1. build the “status_runs” table (as before) but drop the old status‐color mapping
+# build the “status_runs” table (as before) but drop the old status‐color mapping
 threshold <- 10
-AM_aq_status <- AM_aq_raw %>%
+AM_aq_status <- AM_aq_raw |>
   rename(sensor = amon.sensor,
-         time   = amon.universalTime) %>%
+         time   = amon.universalTime) |>
   pivot_longer(
     cols      = c(amon.PM25, amon.NO2),
     names_to  = "pollutant",
     values_to = "value"
-  ) %>%
+  ) |>
   mutate(
     value = ifelse(is.na(value) | value <= 0, NA_real_, value)
-  ) %>%
-  group_by(sensor, time) %>%
+  ) |>
+  group_by(sensor, time) |>
   summarise(
     active         = any(!is.na(value)),
     pollutant_type = first(pollutant_type),
     .groups        = "drop"
-  ) %>%
-  arrange(sensor, time) %>%
-  group_by(sensor, pollutant_type) %>%
-  mutate(run = cumsum(active != lag(active, default = first(active)))) %>%
-  group_by(sensor, pollutant_type, run, active) %>%
+  ) |>
+  arrange(sensor, time) |>
+  group_by(sensor, pollutant_type) |>
+  mutate(run = cumsum(active != lag(active, default = first(active)))) |>
+  group_by(sensor, pollutant_type, run, active) |>
   summarise(
     start  = first(time),
     end    = last(time),
@@ -272,25 +341,25 @@ names(ENV_sensor_names) <- basename(ENV_sensor_names)
 ENV_aq_raw <- map_dfr(ENV_sensor_names, read_csv, .id = "file_id") |>
   select(c(data.sensor, data.universalTime,data.NO2))
 
-ENV_status <- ENV_aq_raw %>%
+ENV_status <- ENV_aq_raw |>
   rename(
     sensor = data.sensor,
     time   = data.universalTime,
     no2    = data.NO2
-  ) %>%
-  arrange(sensor, time) %>%
-  group_by(sensor) %>%
+  ) |>
+  arrange(sensor, time) |>
+  group_by(sensor) |>
   mutate(
     active = !is.na(no2),
     run    = cumsum(active != lag(active, default = first(active)))
-  ) %>%
-  group_by(sensor, run, active) %>%
+  ) |>
+  group_by(sensor, run, active) |>
   summarise(
     start  = first(time),
     end    = last(time),
     length = n(),
     .groups = "drop"
-  ) %>%
+  ) |>
   mutate(
     status = ifelse(!active & length > threshold, "down", "up")
   )
@@ -317,7 +386,4 @@ ggplot(ENV_status, aes(y = sensor)) +
   ) +
   theme_minimal() +
   theme(legend.position = 'none') 
-
-
-
 

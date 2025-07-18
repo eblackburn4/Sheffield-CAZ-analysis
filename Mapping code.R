@@ -13,7 +13,7 @@ library(jsonlite)
 library(sf)
 
 
-# map of sensor locations -------------------------------------------------
+# map of AQ sensor locations -------------------------------------------------
 # this code generates a map of the CAZ boundary and sensor locations in Sheffield
 #make base map
 
@@ -83,25 +83,48 @@ basemap +
 
 
 
-# build CAZ adjacent polygon ----------------------------------------------
+
+# map of traffic sensor locations -----------------------------------------
+# This code generates a map of the CAZ boundary and traffic sensor locations in Sheffield
+
+#load in traffic sensor metadata
+traffic_sensor_meta <- read_csv("Data/Traffic/traffic_meta.csv") |>
+  select(sensorID, lon = 'long_[deg]', lat = 'lat_[deg]')
+
+basemap + 
+  geom_polygon(data = df_polygon, aes(x = lon, y = lat),
+               fill = 'pink',        
+               color = "red",
+               alpha = 0.8,   
+               size = 1) +
+  geom_point(data = traffic_sensor_meta, aes(x = lon, y = lat), 
+             size = 1) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank())
+
+
+# build CAZ adjacent polygon map ----------------------------------------------
 # This code builds a 500 m buffer around the CAZ boundary line and identifies sensors within that buffer.
 
-#create sf objects with sensors and CAZ boundary
-sensor_sf <- st_as_sf(all_sensor_meta, coords = c("lon", "lat"), crs = 4326)
+#create sf objects with AQ/traffic sensors and CAZ boundary
+aq_sensor_sf <- st_as_sf(all_sensor_meta, coords = c("lon", "lat"), crs = 4326)
+tf_sensor_sf <- st_as_sf(traffic_sensor_meta, coords = c("lon", "lat"), crs = 4326)
 
 caz_polygon <- st_polygon(list(as.matrix(df_polygon[, c("lon", "lat")])))
 caz_sf      <- st_sfc(caz_polygon, crs = 4326) %>% st_sf()
 
 #Project both to a metric coordinate system for metre‐based distances
-sensor_m <- st_transform(sensor_sf, 27700)
+aq_sensor_m <- st_transform(aq_sensor_sf, 27700)
+tf_sensor_m <- st_transform(tf_sensor_sf, 27700)
+
 caz_m    <- st_transform(caz_sf, 27700)
 
 #Build a 500 m exterior “ring” around the CAZ
 caz_buffer   <- st_buffer(caz_m, 500)
 caz_outer_ring <- st_difference(caz_buffer, caz_m)
 
-#Classify each sensor into one of three bins
-sensor_m <- sensor_m %>%
+#Classify each aq sensor into one of three bins
+aq_sensor_m <- aq_sensor_m %>%
   mutate(
     in_caz      = as.logical(st_within(geometry, caz_m, sparse = FALSE)),
     in_ring     = as.logical(st_within(geometry, caz_outer_ring, sparse = FALSE)),
@@ -112,12 +135,26 @@ sensor_m <- sensor_m %>%
     )
   )
 
-# 2) reproject your CAZ polygon, outer‐ring and sensors back to WGS84
-caz_ll      <- st_transform(caz_m,            4326)
-ring_ll     <- st_transform(caz_outer_ring,   4326)
-sensor_ll   <- st_transform(sensor_m,         4326)
+#Classify each traffic sensor into one of three bins
+tf_sensor_m <- tf_sensor_m %>%
+  mutate(
+    in_caz      = as.logical(st_within(geometry, caz_m, sparse = FALSE)),
+    in_ring     = as.logical(st_within(geometry, caz_outer_ring, sparse = FALSE)),
+    category    = case_when(
+      in_caz                    ~ "Inside CAZ",
+      !in_caz & in_ring         ~ "CAZ Adjacent",
+      TRUE                      ~ "Other"
+    )
+  )
 
-# 3) extract coords + grouping for plotting polygons with geom_polygon()
+
+#reproject back to normal coords
+caz_ll      <- st_transform(caz_m, 4326)
+ring_ll     <- st_transform(caz_outer_ring, 4326)
+aq_sensor_ll   <- st_transform(aq_sensor_m, 4326)
+tf_sensor_ll   <- st_transform(tf_sensor_m, 4326)
+
+#extract coords 
 sf_to_df <- function(sf_poly) {
   coords <- st_coordinates(sf_poly)
   data.frame(
@@ -129,13 +166,18 @@ sf_to_df <- function(sf_poly) {
 df_caz     <- sf_to_df(caz_ll)
 df_ring    <- sf_to_df(ring_ll)
 
-# 4) pull lon/lat + category out of sensor_ll
-sensor_df_ll <- sensor_ll %>%
+# 4) pull lon/lat + category out of aq_sensor_ll/tf_sensor_ll
+aq_sensor_df_ll <- aq_sensor_ll %>%
   mutate(lon = st_coordinates(.)[,1],
          lat = st_coordinates(.)[,2]) %>%
   st_drop_geometry()
 
-# 5) plot everything on the ggmap
+tf_sensor_df_ll <- tf_sensor_ll %>%
+  mutate(lon = st_coordinates(.)[,1],
+         lat = st_coordinates(.)[,2]) %>%
+  st_drop_geometry()
+
+# plot aq on basemap
 basemap +
   # the 500 m exterior ring
   geom_polygon(
@@ -154,10 +196,40 @@ basemap +
     size    = 0.8
   ) +
   geom_point(
-    data = sensor_df_ll,
+    data = aq_sensor_df_ll,
     aes(x   = lon, y = lat, shape = category),
     size = 1
   ) +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+
+#plot tf on basemap
+basemap +
+  # the 500 m exterior ring
+  geom_polygon(
+    data    = df_ring,
+    aes(x    = lon, y = lat, group = group),
+    color   = "#0d0887",
+    fill = alpha("#0d0887", 0.2),
+    size    = 0.6,
+  ) +
+  # the CAZ polygon
+  geom_polygon(
+    data    = df_caz,
+    aes(x    = lon, y = lat, group = group),
+    color   = "#cc4778",
+    fill   = alpha("#cc4778", 0.2),
+    size    = 0.6
+  ) +
+  geom_point(
+    data = tf_sensor_df_ll,
+    aes(x   = lon, y = lat, color = category),
+    size = 1,
+  ) +
+  scale_color_manual(values = c("Inside CAZ" = "#9c335a", 
+                                  "CAZ Adjacent" = "#090559", 
+                                  "Other" = "#cdd51e")) +
   theme_void() +
   theme(legend.position = "bottom",
         legend.title = element_blank())
