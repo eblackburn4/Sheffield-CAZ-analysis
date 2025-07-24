@@ -12,7 +12,7 @@ library(ggthemes)
 
 ## ---------------------------
 
-# read in AQ data from each sensor family --------------------------------------------------------
+# read in and QA air quality data from each sensor family --------------------------------------------------------
 
 SCC_sensor_names <- list.files("Data/SCC", pattern = "\\.csv$", full.names = TRUE)
 names(SCC_sensor_names) <- basename(SCC_sensor_names)
@@ -43,12 +43,19 @@ SCC_aq_raw <- map_dfr(SCC_sensor_names, read_csv, .id = "file_id") |>
     names_from   = Pollutant,
     values_from  = Value
   ) |>
+  mutate(SensorID = case_when(
+    SensorID == 'Firvale' ~ 'SCC_GH1',
+    SensorID == 'Lowfield' ~ 'SCC_GH3',
+    SensorID == 'The Wicker' ~ 'SCC_GH4',
+    SensorID == 'King Ecgbert' ~ 'SCC_GH5',
+    SensorID == 'Pond Hill' ~ 'SCC_GH6',
+  )) |>
   select(SensorID, DateTime, NO2, PM25)
+
 
 # eWatch data
 EW_aq_raw <- map_dfr(EW_sensor_names, read_csv, .id = "file_id") |>
   select(data.sensor,
-         data.time, 
          data.universalTime, 
          data.NO2, 
          'data.NO2:QC') |>
@@ -77,7 +84,6 @@ defra_aq_raw <- map_dfr(defra_sensor_names, read_csv, .id = "file_id") |>
 #AQMesh data
 AM_aq_raw <- map_dfr(AM_sensor_names, read_csv, .id = "file_id") |>
   select(amon.sensor,
-         amon.time, 
          amon.universalTime, 
          amon.PM25, 
          'amon.PM25:QC', 
@@ -99,50 +105,98 @@ master_aq_raw <- bind_rows(
   AM_aq_raw   |> mutate(family = "AQMesh")
 )
 
-#QC overview
-AM_aq_raw |>
-  filter(NO2_QC != 0) |>
-  group_by(NO2_QC) |>
+#remove individual datasets
+rm(SCC_aq_raw, EW_aq_raw, defra_aq_raw, AM_aq_raw)
+
+#join to sensor metadata
+master_aq_join <- aq_sensor_df_ll |>
+  select(SensorID = sensor_id,
+         type,
+         category) |>
+  left_join(master_aq_raw, by = "SensorID") |>
+  filter(category != 'Other') 
+
+#QC overview for both pollutants (excludes SCC)
+master_aq_join |>
+  filter(DateTime > '2022-08-27 00:00:00' & DateTime < '2023-08-27 00:00:00') |>
+  filter(PM25_QC != 0) |>
+  group_by(PM25_QC, SensorID) |>
   count()
 
+master_aq_join |>
+  filter(DateTime > '2022-08-27 00:00:00' & DateTime < '2023-08-27 00:00:00') |>
+  filter(NO2_QC != 0) |>
+  group_by(NO2_QC, SensorID) |>
+  count()
 
-#various plots
+#check for NA values not included in the QC codes
+master_aq_join |>
+  filter(DateTime > '2022-08-27 00:00:00' & DateTime < '2023-08-27 00:00:00') |>
+  filter(type != 'NO2') |>
+  filter(is.na(PM25)) |>
+  group_by(SensorID) |>
+  count()
 
-SCC_aq_raw |>
-  filter(SensorID == 'Pond Hill') |>
-  filter(DateTime > '2023-02-10 01:00:00' & DateTime < '2023-03-27 00:00:00') |>
-  ggplot(aes(x = DateTime, y = NO2)) +
+#plot template to investigate QC issues
+
+SCC_GH4 <- master_aq_join |>
+  filter(DateTime > '2022-08-27 00:00:00' & DateTime < '2023-08-27 00:00:00')|>
+  filter(SensorID == 'SCC_GH4') |>
+  ggplot(aes(x = DateTime, y = PM25)) +
   geom_line() +
   labs(title = "SCC NO2 Readings", x = "DateTime", y = "NO2 Value") +
   scale_x_datetime(
-    date_labels = "%d/%m/%Y",
-    date_breaks = "5 days"
+    date_labels = "%d/%m",
+    date_breaks = "20 days"
   ) +
   theme_minimal()
 
 
-
-
-#combine into one master df
-master_aq_raw <- bind_rows(
-  SCC_aq_raw |> mutate(family = "SCC"),
-  EW_aq_raw   |> mutate(family = "eWatch"),
-  defra_aq_raw |> mutate(family = "Defra"),
-  AM_aq_raw   |> mutate(family = "AQMesh")
-)
-
-# read in traffic flow data -----------------------------------------------
+# read in and QA traffic flow data -----------------------------------------------
 traffic_sensor_names <- list.files("Data/Traffic", pattern = "\\.csv$", full.names = TRUE)
 names(traffic_sensor_names) <- basename(traffic_sensor_names)
 
 #load in all traffic csvs into a single dataframe
 traffic_raw <- map_dfr(traffic_sensor_names, read_csv, .id = "file_id") |>
-  select(-file_id)
+  select(-file_id) |>
+  mutate(flows.sensor = str_sub(flows.sensor, start = 5)) |>
+  rename(sensorID = flows.sensor) |>
+  mutate(sensorID = str_replace_all(sensorID, "[^[:alnum:]]", ""))
 
-traffic_raw |>
-  filter(`flows.flow:QC` != 0) |>
-  group_by(`flows.flow:QC`) |>
+#join to sensor metadata
+master_tf_join <- tf_sensor_df_ll |>
+  select(sensorID, category) |>
+  inner_join(traffic_raw, by = 'sensorID') |>
+  filter(category != 'Other')
+
+#remove unneeded datasets
+rm(traffic_raw, master_aq_raw)
+
+#examine QC data for QC code 8
+master_tf_join |>
+  filter(`flows.flow:QC` == 8) |>
+  filter(flows.universalTime > '2022-08-27 00:00:00' & flows.universalTime < '2023-08-27 00:00:00') 
+
+#check presence of NAs
+master_tf_join |>
+  filter(is.na(`flows.flow:QC`)) |>
+  filter(flows.universalTime > '2022-08-27 00:00:00' & flows.universalTime < '2023-08-27 00:00:00') |>
+  group_by(sensorID) |>
   count()
+  
+#various plots 6 months either side of CAZ
+
+master_tf_join |>
+  filter(`flows.flow:QC` == 8) |>
+  filter(flows.universalTime > '2022-08-27 00:00:00' & flows.universalTime < '2023-08-27 00:00:00') |>
+  ggplot(aes(x = flows.universalTime, y = flows.flow)) +
+  geom_line() +
+  facet_wrap(~ sensorID, scales = "free_y") +
+  scale_x_datetime(
+    date_labels = "%d/%m",
+    date_breaks = "1 month"
+  ) +
+  theme_minimal()
 
 
 # SCC data uptime plots ---------------------------------------------------

@@ -13,6 +13,7 @@ library(jsonlite)
 library(sf)
 
 
+
 # map of AQ sensor locations -------------------------------------------------
 # this code generates a map of the CAZ boundary and sensor locations in Sheffield
 #make base map
@@ -35,8 +36,8 @@ colnames(df_polygon) <- c("lon", "lat")
 
 #load in sensor metadata (SCC etc)
 
-SCCsensormeta <- read_csv("Data/SCC/SCC_sensor_meta.csv")|>
-  select(sensor_id = Location, family. = Owner, lat = Lat, lon = Lon) %>%
+SCC_sensor_meta <- read_csv("Data/Sensormeta/SCC_sensor_meta.csv")|>
+  select(sensor_id = Location, family = Owner, lat = Lat, lon = Lon) %>%
   mutate(type = "Both") 
 
 json_sensor_meta <- list.files(path = "Data/Sensormeta", pattern = "\\.json$", full.names = TRUE)
@@ -57,8 +58,8 @@ read_sensor_meta <- function(fn) {
     NA_character_
   }
   data.frame(
-    sensor_id   = j$identity$siteID,
-    family.     = j$identity$sensorFam,
+    sensor_id   = j$identity$Q_sensor_ID,
+    family     = j$identity$sensorFam,
     lat         = j$location$latitude_deg,
     lon         = j$location$longitude_deg,
     type        = sensor_type,
@@ -88,7 +89,7 @@ basemap +
 # This code generates a map of the CAZ boundary and traffic sensor locations in Sheffield
 
 #load in traffic sensor metadata
-traffic_sensor_meta <- read_csv("Data/Traffic/traffic_meta.csv") |>
+traffic_sensor_meta <- read_csv("Data/Sensormeta/traffic_meta.csv") |>
   select(sensorID, lon = 'long_[deg]', lat = 'lat_[deg]')
 
 basemap + 
@@ -175,7 +176,8 @@ aq_sensor_df_ll <- aq_sensor_ll %>%
 tf_sensor_df_ll <- tf_sensor_ll %>%
   mutate(lon = st_coordinates(.)[,1],
          lat = st_coordinates(.)[,2]) %>%
-  st_drop_geometry()
+  st_drop_geometry() |>
+  mutate(sensorID = str_replace_all(sensorID, "[^[:alnum:]]", ""))
 
 # plot aq on basemap
 basemap +
