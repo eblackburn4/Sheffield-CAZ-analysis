@@ -120,8 +120,8 @@ tf_sensor_m <- st_transform(tf_sensor_sf, 27700)
 
 caz_m    <- st_transform(caz_sf, 27700)
 
-#Build a 500 m exterior “ring” around the CAZ
-caz_buffer   <- st_buffer(caz_m, 500)
+#Build an exterior “ring” around the CAZ
+caz_buffer   <- st_buffer(caz_m, 1000)
 caz_outer_ring <- st_difference(caz_buffer, caz_m)
 
 #Classify each aq sensor into one of three bins

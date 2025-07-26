@@ -105,16 +105,24 @@ master_aq_raw <- bind_rows(
   AM_aq_raw   |> mutate(family = "AQMesh")
 )
 
+
+
+
 #remove individual datasets
 rm(SCC_aq_raw, EW_aq_raw, defra_aq_raw, AM_aq_raw)
 
-#join to sensor metadata
+#join to sensor metadata and filter for only CAZ-adjacent sensors with at least 6 months of data
 master_aq_join <- aq_sensor_df_ll |>
   select(SensorID = sensor_id,
          type,
          category) |>
   left_join(master_aq_raw, by = "SensorID") |>
-  filter(category != 'Other') 
+  filter(category != 'Other') |>
+  group_by(SensorID) |>
+  filter(max(DateTime) >= '2023-08-26 00:00:00' & 
+         min(DateTime) <= '2022-08-27 00:00:00') 
+
+rm(master_aq_raw)
 
 #QC overview for both pollutants (excludes SCC)
 master_aq_join |>
@@ -139,16 +147,16 @@ master_aq_join |>
 
 #plot template to investigate QC issues
 
-SCC_GH4 <- master_aq_join |>
-  filter(DateTime > '2022-08-27 00:00:00' & DateTime < '2023-08-27 00:00:00')|>
-  filter(SensorID == 'SCC_GH4') |>
-  ggplot(aes(x = DateTime, y = PM25)) +
-  geom_line() +
-  labs(title = "SCC NO2 Readings", x = "DateTime", y = "NO2 Value") +
-  scale_x_datetime(
-    date_labels = "%d/%m",
-    date_breaks = "20 days"
+master_aq_join |>
+  ggplot(aes(x = DateTime, y = NO2)) +
+  geom_line(color = 'red') +
+  geom_vline(
+    xintercept = as.POSIXct('2023-02-27 00:00:00', tz = "UTC"),
+    linetype   = "dashed",
+    color      = "black"
   ) +
+  facet_wrap(~SensorID) +
+  labs(title = "NO2 Readings", x = "DateTime", y = "NO2 Value") +
   theme_minimal()
 
 
@@ -197,6 +205,8 @@ master_tf_join |>
     date_breaks = "1 month"
   ) +
   theme_minimal()
+
+
 
 
 # SCC data uptime plots ---------------------------------------------------
@@ -259,34 +269,9 @@ plot_sensor_uptime <- function(df,
     theme_minimal()
 }
 
-SCC_aq_long <- SCC_aq_raw |>
-  select(-file_id) |>            
-  group_by(DateTime) |>         
-  summarise(
-    across(
-      .cols   = everything(),
-      .fns    = ~ first(na.omit(.x))
-    ),
-    .groups = "drop"
-  )
-
-#split into one table per pollutant
-pollutants <- c("NO", "NO2", "PM25", "PM10")
-
-make_tbl <- function(df, pollutant){
-  df |>
-    select(DateTime, matches(pollutant)) |>
-    rename_with(~ str_remove(.x, "\\s*,.*"), -DateTime)
-}
-
-SCC_NO   <- make_tbl(SCC_aq_long, "NO, 000\\[M\\]")
-SCC_NO2  <- make_tbl(SCC_aq_long, "NO2, DIF\\[M\\]")
-SCC_PM25 <- make_tbl(SCC_aq_long, "PM25, 000\\[M\\]")
-SCC_PM10 <- make_tbl(SCC_aq_long, "PM10, 000\\[M\\]")
-
 
 #plot for all SCC sensors
-plot_sensor_uptime(SCC_NO, 'NO')
+plot_sensor_uptime(S, 'NO')
 plot_sensor_uptime(SCC_NO2, 'NO2')
 plot_sensor_uptime(SCC_PM25, 'PM25')
 plot_sensor_uptime(SCC_PM10, 'PM10')
@@ -440,4 +425,9 @@ ggplot(ENV_status, aes(y = sensor)) +
   ) +
   theme_minimal() +
   theme(legend.position = 'none') 
+
+
+
+
+
 

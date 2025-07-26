@@ -13,69 +13,6 @@ library(weathermetrics) #for calculating humidity from dewpoint
 
 ## ---------------------------
 
-
-# example from docs -------------------------------------------------------
-
-# Have a look at rmweather's example data, from london
-ldn <- data_london 
-
-# Prepare data for modelling
-# Only use data with valid wind speeds, no2 will become the dependent variable
-data_london_prepared <- ldn %>% 
-  filter(variable == "no2",
-         !is.na(ws)) %>% 
-  rmw_prepare_data(na.rm = TRUE)
-
-# Grow/train a random forest model and then create a meteorological normalised trend 
-list_normalised <- rmw_do_all(
-  data_london_prepared,
-  variables = c(
-    "date_unix", "day_julian", "weekday", "air_temp", "rh", "wd", "ws",
-    "atmospheric_pressure"
-  ),
-  n_trees = 300,
-  n_samples = 300,
-  verbose = TRUE
-)
-
-# What units are in the list? 
-names(list_normalised)
-
-# Check model object's performance
-rmw_model_statistics(list_normalised$model)
-
-# Plot variable importances
-list_normalised$model %>% 
-  rmw_model_importance() %>% 
-  rmw_plot_importance()
-
-# Check if model has suffered from overfitting
-rmw_predict_the_test_set(
-  model = list_normalised$model,
-  df = list_normalised$observations
-) %>% 
-  rmw_plot_test_prediction()
-
-# How long did the process take? 
-list_normalised$elapsed_times
-
-# Plot normalised trend
-rmw_plot_normalised(list_normalised$normalised)
-
-# Investigate partial dependencies, if variable is NA, predict all
-data_pd <- rmw_partial_dependencies(
-  model = list_normalised$model, 
-  df = list_normalised$observations,
-  variable = NA
-)
-
-# Plot partial dependencies
-data_pd %>% 
-  filter(variable != "date_unix") %>% 
-  rmw_plot_partial_dependencies()
-
-
-
 # load in ERA5 weather data -----------------------------------------------
 
 #define functions to calc wind speed and dir from u and v components
@@ -109,7 +46,69 @@ ERA5_data <- ERA5_source |>
   mutate(rel_hum = ifelse(is.na(rel_hum), 100, rel_hum)) |>
   select(-u10, -v10, -dewpoint_2m) 
   
+#Join ERA5 data to AQ sensor data
+master_aq_ERA5 <- left_join(master_aq_join, ERA5_data, by = "DateTime") |>
+  rename(date = DateTime)
+
+#function for rmweather normalisation pipeline
+
+weather_norm <- function(sensor, pollutant){
+  master_aq_ERA5 |> 
+    filter(SensorID == sensor) |>
+    rmw_prepare_data(value = pollutant, na.rm = TRUE) |> 
+    rmw_do_all(
+      variables = c(
+        "date_unix", 
+        "day_julian", 
+        "weekday",
+        'hour', 
+        "total_rain", 
+        "surface_pressure", 
+        "temp_2m", 
+        "solar_rads",
+        "wd_spd",
+        'wd_dir',
+        'rel_hum'
+      ),
+      n_trees = 300,
+      n_samples = 300,
+      verbose = TRUE
+    )
+}
 
 
+#function for rmweather diagnostic plots
+
+norm_plots <- function(sensor_norm) {
+  sensor_norm$model |>
+    rmw_model_importance() |> 
+    rmw_plot_importance() +
+    theme_ipsum_rc()
+  
+  rmw_predict_the_test_set(
+    model = sensor_norm$model,
+    df = sensor_norm$observations
+  ) |>
+    rmw_plot_test_prediction()
+  
+  rmw_plot_normalised(sensor_norm$normalised) +
+    geom_vline(xintercept = as.POSIXct('2023-02-27 00:00:00', tz = "UTC"), linetype = 'dashed', color = 'red')
+  
+  ggplot(data = sensor_norm$observations, aes(x = date, y = value)) +
+    geom_line()
+  
+  rmw_partial_dependencies(
+    model = sensor_norm$model, 
+    df = sensor_norm$observations,
+    variable = NA
+  ) |>
+    filter(variable != "date_unix") |>
+    rmw_plot_partial_dependencies() 
+}
+
+#generate normalised time series and diagnostic plots for each pollutant/sensor pair
+
+SCCGH4_NO2 <- weather_norm("SCC_GH4", "NO2")
+norm_plots(SCCGH4_NO2)
 
 
