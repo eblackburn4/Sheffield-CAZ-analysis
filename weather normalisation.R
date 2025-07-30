@@ -10,6 +10,7 @@ library(hrbrthemes) #nice graphs
 library(rmweather) #for meteorological normalisation
 library(ranger) #dependency for rmweather
 library(weathermetrics) #for calculating humidity from dewpoint
+library(patchwork)
 
 ## ---------------------------
 
@@ -17,7 +18,7 @@ library(weathermetrics) #for calculating humidity from dewpoint
 
 #define functions to calc wind speed and dir from u and v components
 windDir <-function(u,v){
-  (270-atan2(u,v)*180/pi)%%360 
+  (270-atan2(u,v)*180/pi)%%360
 }
 
 windSpd <-function(u,v){
@@ -70,9 +71,10 @@ weather_norm <- function(sensor, pollutant){
         'wd_dir',
         'rel_hum'
       ),
-      n_trees = 300,
-      n_samples = 300,
-      verbose = TRUE
+      n_trees = 1000,
+      n_samples = 500,
+      verbose = TRUE,
+      se = FALSE
     )
 }
 
@@ -80,35 +82,71 @@ weather_norm <- function(sensor, pollutant){
 #function for rmweather diagnostic plots
 
 norm_plots <- function(sensor_norm) {
-  sensor_norm$model |>
+  var_imp <- sensor_norm$model |>
     rmw_model_importance() |> 
-    rmw_plot_importance() +
-    theme_ipsum_rc()
-  
-  rmw_predict_the_test_set(
+    rmw_plot_importance()
+    labs(
+      title = paste('Variable Importance')
+    )
+    
+  pred_vs_act <- rmw_predict_the_test_set(
     model = sensor_norm$model,
     df = sensor_norm$observations
   ) |>
-    rmw_plot_test_prediction()
+    rmw_plot_test_prediction()  +
+    labs(
+      title = paste('Predicted v actuals')
+    ) 
   
-  rmw_plot_normalised(sensor_norm$normalised) +
-    geom_vline(xintercept = as.POSIXct('2023-02-27 00:00:00', tz = "UTC"), linetype = 'dashed', color = 'red')
+  norm_obs <- rmw_plot_normalised(sensor_norm$normalised) +
+    geom_vline(xintercept = as.POSIXct('2023-02-27 00:00:00', tz = "UTC"), 
+               linetype = 'dashed', color = 'red') +
+    labs(title = 'Deweathered observations')
   
-  ggplot(data = sensor_norm$observations, aes(x = date, y = value)) +
-    geom_line()
-  
-  rmw_partial_dependencies(
-    model = sensor_norm$model, 
-    df = sensor_norm$observations,
-    variable = NA
-  ) |>
-    filter(variable != "date_unix") |>
-    rmw_plot_partial_dependencies() 
+ raw_obs <- ggplot(data = sensor_norm$observations, aes(x = date, y = value)) +
+    geom_line() +
+    labs(
+      x = "Date",
+      y = "Pollutant",
+      title = 'Raw observations'
+    ) 
+ 
+ part_dep <- rmw_partial_dependencies(
+   model = sensor_norm$model, 
+   df = sensor_norm$observations,
+   variable = NA
+ ) |>
+   filter(variable != "date_unix") |>
+   rmw_plot_partial_dependencies() +
+   labs(title = 'partial dependencies')
+ 
+pwork <- (var_imp + pred_vs_act) / (norm_obs + raw_obs)
+print(pwork)
+print(part_dep)
 }
 
 #generate normalised time series and diagnostic plots for each pollutant/sensor pair
 
-SCCGH4_NO2 <- weather_norm("SCC_GH4", "NO2")
-norm_plots(SCCGH4_NO2)
+GH4_NO2 <- weather_norm("SCC_GH4", "NO2") 
+GH4_PM25 <- weather_norm("SCC_GH4", "NO2") 
+GH3_NO2 <- weather_norm("SCC_GH3", "NO2")
+GH3_PM25 <- weather_norm("SCC_GH3", "PM25")
+GH6_NO2 <- weather_norm("SCC_GH6", "NO2")
+GH6_PM25 <- weather_norm("SCC_GH6", "PM25")
+DFR_NO2 <- weather_norm("DFR_1027A", "NO2")
+DFR_PM25 <- weather_norm("DFR_1027A", "PM25")
+
+norm_plots(GH4_NO2)
+# norm_plots(GH4_PM25)
+# norm_plots(GH3_NO2)
+# norm_plots(GH3_PM25)
+# norm_plots(GH6_NO2)
+# norm_plots(GH6_PM25)
+# norm_plots(DFR_NO2)
+# norm_plots(DFR_PM25)
+
+#TO DO TOMORROW
+
+
 
 

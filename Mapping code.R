@@ -11,14 +11,14 @@ library(ggthemes)
 library(ggmap)
 library(jsonlite)
 library(sf)
-
+library(ggrepel)
 
 
 # map of AQ sensor locations -------------------------------------------------
 # this code generates a map of the CAZ boundary and sensor locations in Sheffield
 #make base map
 
-sheffield <- c(-1.550367, 53.310425, -1.390238, 53.423676)
+sheffield <- c(-1.524367, 53.350425, -1.404986, 53.406676)
 basemap <- get_stadiamap(sheffield, zoom = 15, maptype="stamen_toner_lite") |> ggmap()
 
 #read in CAZ json
@@ -179,6 +179,12 @@ tf_sensor_df_ll <- tf_sensor_ll %>%
   st_drop_geometry() |>
   mutate(sensorID = str_replace_all(sensorID, "[^[:alnum:]]", ""))
 
+# 5) filter for only those sensors we're actually including
+
+aq_sensor_df_ll_RDD <- aq_sensor_df_ll %>%
+  filter(sensor_id %in% master_aq_join$SensorID)
+  
+
 # plot aq on basemap
 basemap +
   # the 500 m exterior ring
@@ -187,7 +193,7 @@ basemap +
     aes(x    = lon, y = lat, group = group),
     fill  = alpha("lightblue", 0.6),
     color   = "blue",
-    size    = 0.8,
+    size    = 0.6,
   ) +
   # the CAZ polygon
   geom_polygon(
@@ -195,16 +201,22 @@ basemap +
     aes(x    = lon, y = lat, group = group),
     fill  = alpha("pink", 0.5),
     color   = "red",
-    size    = 0.8
+    size    = 0.6
   ) +
   geom_point(
-    data = aq_sensor_df_ll,
+    data = aq_sensor_df_ll_RDD,
     aes(x   = lon, y = lat, shape = category),
-    size = 1
+    size = 3, alpha = 0.8
+  ) +
+  geom_text_repel(
+    data    = aq_sensor_df_ll_RDD,
+    aes(x = lon, y = lat, label = sensor_id),            # e.g. just above
+    size    = 3,             # font size
+    colour  = "black"
   ) +
   theme_void() +
   theme(legend.position = "bottom",
-        legend.title = element_blank())
+        legend.title = element_blank()) 
 
 #plot tf on basemap
 basemap +

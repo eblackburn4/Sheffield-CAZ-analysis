@@ -1,83 +1,166 @@
 
 ## ---------------------------
-## Purpose of script: code for RDDiT causal inference
+## Purpose of script: RDD analysis of AQ and traffic data
 ## Author: Ned Blackburn
-## Date Created: 2025-07-12
+## Date Created: 2025-07-26
 
 options(scipen = 6, digits = 5) 
 library(tidyverse)
 library(hrbrthemes)
-library(MASS)  # for robust regression
+library(rdrobust)
+library(ggpattern)
 
-## ---------------------------
 
-## ---------------------------
+# RDD estimators for AQ data ----------------------------------------------
+#aggregate data to be daily avg rather than hourly and add running variable
 
-# simulated RDD chart for intro -----------------------------------------------------
+CAZ_start <- as_date("2023-02-27")
 
-#simulate data for RDD graph
-# Set seed for reproducibility of simulated noise
-set.seed(123)
+daily_avg <- function(sensor) {
+  sensor$normalised <- sensor$normalised |>
+    mutate(day = as_date(date)) |>
+    group_by(day) |>
+    summarise(mean_value = mean(value_predict),
+              median_value = median(value_predict), 
+              .groups = "drop") |>
+    mutate(t = as.numeric(day - CAZ_start))            
+  sensor
+} 
 
-# Generate fake time series(600 days)
-time <- seq.Date(from = as.Date("2023-01-01"), 
-                 by = "day", length.out = 1000)
+#apply daily average to all sensors
 
-# Define change point
-change_point <- as.Date("2024-06-20")  # Later date due to longer series
+AQ_norm_list <- list(  GH4_NO2  = GH4_NO2,
+                       GH4_PM25 = GH4_PM25,
+                       GH3_NO2  = GH3_NO2,
+                       GH3_PM25 = GH3_PM25,
+                       GH6_NO2  = GH6_NO2,
+                       GH6_PM25 = GH6_PM25,
+                       DFR_NO2  = DFR_NO2,
+                       DFR_PM25 = DFR_PM25 )
 
-# Function to generate autocorrelated noise (AR(1) process)
-generate_ar1_noise <- function(n, phi = 0.8, sigma = 0.5) {
-  eps <- rnorm(n, sd = sigma) # White noise
-  ar1_noise <- numeric(n)
-  ar1_noise[1] <- eps[1]
+AQ_norm_list <- map(AQ_norm_list, daily_avg)
+list2env(AQ_norm_list, envir = .GlobalEnv)
+
+ggplot(GH6_NO2$normalised, aes(x = day)) +
+  geom_line(aes(y = mean_value), color = 'blue') +
+  labs(title = "GH4 NO2 Daily Mean Values",
+       x = "Date",
+       y = "Mean NO2 Concentration") +
+  theme_minimal()
+
+# RDD analysis for each sensor and pollutant
+
+#function to run RDD analysis on AQ sensors
+RDD_AQ_fn <- function(sensor, h = NULL, donut_hole = 0) {
+  sensor_name <- deparse(substitute(sensor))
+  df <- sensor$normalised
   
-  for (i in 2:n) {
-    ar1_noise[i] <- phi * ar1_noise[i - 1] + eps[i]
+  # Initialize output containers
+  sensor$RDD <- list()
+  sensor$RDD_donut <- list()
+  
+  ##Standard RD -----------------------------------------------
+  
+  bw_select <- rdbwselect(y = df$mean_value, x = df$t)
+  sensor$RDD$bw_select <- bw_select
+  
+  # Estimation
+  est_args <- list(y = df$mean_value, x = df$t, p = 1, all = TRUE, kernel = "uniform")
+  est_args$h <- ifelse(!is.null(h), h, bw_select$bws[1, ])
+  est <- do.call(rdrobust, est_args)
+  sensor$RDD$est <- est
+  sensor$RDD$est_summary <- summary(est)
+  
+  # Fixed-bandwidth diagnostic
+  h_fixed <- ifelse(!is.null(h), h, bw_select$bws[1, ])
+  
+  sensor$RDD$rdplot_bw <- rdplot(
+    y       = df$mean_value,
+    x       = df$t,
+    subset  = df$t >= -h_fixed & df$t <= h_fixed,
+    h       = h_fixed,
+    p       = 1,
+    nbins   = 2 * h_fixed,
+    kernel  = "uniform",
+    title   = paste(sensor_name, "Sharp RDD"),
+    x.label = "Days from introduction",
+    y.label = "mean daily concentration"
+  ) 
+  
+rd_bw_plot <- sensor$RDD$rdplot_bw$rdplot 
+  
+  #Donut RD
+  if (donut_hole > 0) {
+    df_donut <- subset(df, abs(t) > donut_hole)
+  
+    bw_d <- rdbwselect(y = df_donut$mean_value, x = df_donut$t)
+    sensor$RDD_donut$bw_select <- bw_d
+    
+    est_args_d <- list(y = df_donut$mean_value, x = df_donut$t, p = 1, all = TRUE, kernel = "uniform")
+    #est_args_d$h <- ifelse(!is.null(h), h + donut_hole, bw_d$bws[1, ] + donut_hole)
+    est_args_d$h <- ifelse(!is.null(h), h + donut_hole, bw_select$bws[1, ] + donut_hole)
+    
+    est_d <- do.call(rdrobust, est_args_d)
+    sensor$RDD_donut$est <- est_d
+    sensor$RDD_donut$est_summary <- summary(est_d)
+    
+    h_fixed_d <- ifelse(!is.null(h), est_d$bws[1, ] + donut_hole, bw_d$bws[1, ] +donut_hole)
+    
+    sensor$RDD_donut$rdplot_bw <- rdplot(
+      y       = df_donut$mean_value,
+      x       = df_donut$t,
+      h       = est_args_d$h,
+      subset  = df_donut$t >= -est_args_d$h & df_donut$t <= est_args_d$h,
+      p       = 1,
+      nbins   = 2 * est_args_d$h,
+      kernel  = "uniform",
+      ci      = 0.95,           
+      shade   = TRUE,
+      title   = paste(sensor_name, "Donut data inside bandwidth"),
+      x.label = "Days from CAZ introduction",
+      y.label = "mean daily concentration (ppm)"
+    ) 
   }
-  return(ar1_noise)
+  
+rd_donut_bw_plot <- sensor$RDD_donut$rdplot_bw$rdplot 
+
+sensor$RDD_donut$rdplot_bw$rdplot <- rd_donut_bw_plot +
+  geom_rect(
+    aes(xmin = -donut_hole, xmax = donut_hole,
+        ymin = -Inf,        ymax = Inf),
+    fill         = "orange",
+    alpha        = 0.3,
+    color        = 'grey60',
+    linetype     = "dashed",
+    inherit.aes  = FALSE
+  ) +
+  labs(
+    title = paste(sensor_name, "RDD donut estimation"),
+    x     = "Days from CAZ introduction",
+    y     = "Mean daily concentration (ppm)"
+  ) 
+
+#return the object and print the bandwidth plots
+  print(sensor$RDD$rdplot_bw$rdplot)
+  if (donut_hole > 0) {
+    print(sensor$RDD_donut$rdplot_bw$rdplot)
+  }
+  return(sensor)
 }
 
-# Phase 1: Nearly flat line at high y-value (longer duration)
-n1 <- sum(time < change_point)
-phase1 <- data.frame(
-  date = time[1:n1],
-  value = 80 + 0.0003 * (1:n1) + generate_ar1_noise(n1) # Small slope, high value
-)
+# Run RDD analysis for each sensor with and without donut holes
+GH4_NO2_RDD <- RDD_AQ_fn(GH4_NO2, donut_hole = 28)
+GH4_PM25_RDD <- RDD_AQ_fn(GH4_PM25, donut_hole = 28)
+DFR_NO2_RDD <- RDD_AQ_fn(DFR_NO2, donut_hole = 28)
+DFR_PM25_RDD <- RDD_AQ_fn(DFR_PM25, donut_hole = 28)
+GH6_NO2_RDD <- RDD_AQ_fn(GH6_NO2, donut_hole = 28)
+GH6_PM25_RDD <- RDD_AQ_fn(GH6_PM25, donut_hole = 28)
+GH3_NO2_RDD <- RDD_AQ_fn(GH3_NO2, donut_hole = 28)
+GH3_PM25_RDD <- RDD_AQ_fn(GH3_PM25, donut_hole = 28)
 
-# Phase 2: Gentle downward slope, starting below Phase 1 end (longer duration)
-n2 <- sum(time >= change_point)
-gap_size <- 1  # Increased gap between the two phases
 
-# Adjusted start for phase 2 to model discontinuity
-phase2_time <- time[(n1 + gap_size + 1):(n1 + gap_size + n2)]
-phase2 <- data.frame(
-  date = phase2_time,
-  value = 70 - 0.0002*(1:length(phase2_time)) + generate_ar1_noise(length(phase2_time)) # Gentle downward slope
-)
+ggplot(GH3_NO2$normalised, aes(x = day, y = mean_value)) +
+  geom_line()
 
-#initialize robust linear model for each phase
-
-model1 <- rlm(value ~ as.numeric(date), data = phase1)  # Phase 1 fit line
-model2 <- rlm(value ~ as.numeric(date), data = phase2)  # Phase 2 fit line
-
-# Predict fitted values
-phase1$fitted <- predict(model1, newdata = phase1)
-phase2$fitted <- predict(model2, newdata = phase2)
-
-# Plot separately for each phase to prevent line joining
-ggplot() +
-  geom_line(data = phase1, aes(x = date, y = value), color = "grey85") +
-  geom_line(data = phase2, aes(x = date, y = value), color = "grey85") +
-  geom_line(data = phase1, aes(x = date, y = fitted), color = "purple", linewidth= 0.8) +
-  geom_line(data = phase2, aes(x = date, y = fitted), color = "purple", linewidth = 0.8) +
-  geom_vline(xintercept = change_point, linetype = "dashed", color = "grey30", linewidth = 0.9) +
-  labs(x = "Time",
-       y = "Pollutant concentration") +
-  theme_ipsum(grid = '', axis = FALSE) +
-  theme(axis.text.x = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.x = element_text(size = 12, hjust = 0.95),
-        axis.title.y = element_text(size = 12, vjust = -3))
 
 
