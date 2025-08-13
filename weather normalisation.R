@@ -136,7 +136,7 @@ GH6_PM25 <- weather_norm("SCC_GH6", "PM25")
 DFR_NO2 <- weather_norm("DFR_1027A", "NO2")
 DFR_PM25 <- weather_norm("DFR_1027A", "PM25")
 
-norm_plots(GH4_NO2)
+#norm_plots(GH4_NO2)
 # norm_plots(GH4_PM25)
 # norm_plots(GH3_NO2)
 # norm_plots(GH3_PM25)
@@ -145,7 +145,47 @@ norm_plots(GH4_NO2)
 # norm_plots(DFR_NO2)
 # norm_plots(DFR_PM25)
 
-#TO DO TOMORROW
+GH3_PM25$normalised |>
+  filter(day >= as.Date("2022-08-27") & day <= as.Date("2023-08-27")) |>
+  ggplot(aes(x = day, y = mean_value)) +
+  geom_line() +
+  labs(
+    x = "Date",
+    y = "PM2.5",
+    title = 'GH4 PM2.5 Normalised Time Series'
+  ) +
+  theme_minimal()
+
+# Traffic normalisation ---------------------------------------------------
+
+#aggregate up to hourly data
+master_tf_join |>
+  mutate()
+
+traffic_norm <- function(sensor){
+  master_tf_join |>
+    filter(SensorID == sensor) |>
+    rmw_prepare_data(value = pollutant, na.rm = TRUE) |> 
+    rmw_do_all(
+      variables = c(
+        "date_unix", 
+        "day_julian", 
+        "weekday",
+        'hour', 
+        "total_rain", 
+        "surface_pressure", 
+        "temp_2m", 
+        "solar_rads",
+        "wd_spd",
+        'wd_dir',
+        'rel_hum'
+      ),
+      n_trees = 1000,
+      n_samples = 500,
+      verbose = TRUE,
+      se = FALSE
+    )
+}
 
 
 

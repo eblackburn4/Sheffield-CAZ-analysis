@@ -124,6 +124,129 @@ master_aq_join <- aq_sensor_df_ll |>
 
 rm(master_aq_raw)
 
+# read in and QA traffic flow data -----------------------------------------------
+traffic_sensor_names <- list.files("Data/Traffic", pattern = "\\.csv$", full.names = TRUE)
+names(traffic_sensor_names) <- basename(traffic_sensor_names)
+
+#load in all traffic csvs into a single dataframe
+traffic_raw <- map_dfr(traffic_sensor_names, read_csv, .id = "file_id") |>
+  select(-file_id) |>
+  mutate(flows.sensor = str_sub(flows.sensor, start = 5)) |>
+  rename(sensorID = flows.sensor) |>
+  mutate(sensorID = str_replace_all(sensorID, "[^[:alnum:]]", ""))
+
+#join to sensor metadata and filter for only sensors with at least 6 months of data and no more than 10% missing values
+
+start <- as.POSIXct("2022-08-27 00:00:00", tz = "UTC")
+end   <- as.POSIXct("2023-08-26 00:00:00", tz = "UTC")
+
+master_tf_join <- tf_sensor_df_ll |>
+  select(sensorID, category) |>
+  inner_join(traffic_raw, by = 'sensorID') |>
+  filter(category != 'Other') |>
+  rename(DateTime = 'flows.universalTime',
+         flow = 'flows.flow',
+         QC = 'flows.flow:QC') |>
+  mutate(flow = if_else(QC == 8, NA, flow)) |>
+  group_by(sensorID) |>
+  filter(max(DateTime) >= end, min(DateTime) <= start) |>
+  filter(DateTime >= start, DateTime <= end) |>
+  filter(mean(is.na(flow)) <= 0.10) 
+
+  
+#remove unneeded datasets
+rm(traffic_raw)
+
+#check presence of NAs
+master_tf_join |>
+  ungroup() |>
+  distinct(sensorID) |>
+  count()
+
+master_aq_join |>
+  ungroup() |>
+  distinct(SensorID) |>
+  count()
+
+#aggregate the traffic data to be per hour by grouping the timestamps into hourly bins
+#so it can be weather-normalised
+
+master_tf_join_hourly <- master_tf_join |>
+  mutate(hr = floor_date(DateTime, "hour")) |> 
+  group_by(sensorID, hr, category) |>
+  summarise(cars_per_hour = sum(5*flow, na.rm = TRUE), .groups = "drop") |>
+  arrange(sensorID, hr)
+
+rm(master_tf_join)
+
+# recreate maps with only included sensors --------------------------------
+aq_sensor_df_ll_RDD <- aq_sensor_df_ll |>
+  filter(sensor_id %in% master_aq_join$SensorID)
+
+tf_sensor_df_ll_RDD <- tf_sensor_df_ll |>
+  filter(sensorID %in% master_tf_join_hourly$sensorID)
+
+basemap +
+  geom_polygon(
+    data    = df_ring,
+    aes(x    = lon, y = lat, group = group),
+    fill  = alpha("grey90", 0.6),
+    color   = "black",
+    size    = 0.3,
+  ) +
+  # the CAZ polygon
+  geom_polygon(
+    data    = df_caz,
+    aes(x    = lon, y = lat, group = group),
+    fill  = alpha("pink", 0.5),
+    color   = "red",
+    size    = 0.3
+  ) +
+  geom_point(
+    data = aq_sensor_df_ll_RDD,
+    aes(x   = lon, y = lat, shape = category),
+    size = 3, alpha = 0.8
+  ) +
+  geom_text_repel(
+    data    = aq_sensor_df_ll_RDD,
+    aes(x = lon, y = lat, label = sensor_id),            # e.g. just above
+    size    = 3,             # font size
+    colour  = "black"
+  ) +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank()) 
+
+basemap +
+  # the 500 m exterior ring
+  geom_polygon(
+    data    = df_ring,
+    aes(x    = lon, y = lat, group = group),
+    color   = "black",
+    fill = alpha("darkblue", 0.1),
+    size    = 0.3,
+  ) +
+  # the CAZ polygon
+  geom_polygon(
+    data    = df_caz,
+    aes(x    = lon, y = lat, group = group),
+    color   = "#cc4778",
+    fill   = alpha("#cc4778", 0.2),
+    size    = 0.3
+  ) +
+  geom_point(
+    data = tf_sensor_df_ll_RDD,
+    aes(x   = lon, y = lat, color = category),
+    size = 2, alpha = 0.8
+  ) +
+  scale_color_manual(values = c("Inside CAZ" = "#9c335a", 
+                                "CAZ Adjacent" = "darkblue", 
+                                "Other" = "grey50")) +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+
+
 
 # 
 # #QC overview for both pollutants (excludes SCC)
@@ -175,56 +298,8 @@ rm(master_aq_raw)
 #   labs(title = "NA periods - GH6_NO2", x = "DateTime", y = "NO2 Value") +
 #   theme_minimal()
 # 
-# # read in and QA traffic flow data -----------------------------------------------
-# traffic_sensor_names <- list.files("Data/Traffic", pattern = "\\.csv$", full.names = TRUE)
-# names(traffic_sensor_names) <- basename(traffic_sensor_names)
-# 
-# #load in all traffic csvs into a single dataframe
-# traffic_raw <- map_dfr(traffic_sensor_names, read_csv, .id = "file_id") |>
-#   select(-file_id) |>
-#   mutate(flows.sensor = str_sub(flows.sensor, start = 5)) |>
-#   rename(sensorID = flows.sensor) |>
-#   mutate(sensorID = str_replace_all(sensorID, "[^[:alnum:]]", ""))
-# 
-# #join to sensor metadata
-# master_tf_join <- tf_sensor_df_ll |>
-#   select(sensorID, category) |>
-#   inner_join(traffic_raw, by = 'sensorID') |>
-#   filter(category != 'Other')
-# 
-# #remove unneeded datasets
-# rm(traffic_raw, master_aq_raw)
-# 
-# #examine QC data for QC code 8
-# master_tf_join |>
-#   filter(`flows.flow:QC` == 8) |>
-#   filter(flows.universalTime > '2022-08-27 00:00:00' & flows.universalTime < '2023-08-27 00:00:00') 
-# 
-# #check presence of NAs
-# master_tf_join |>
-#   filter(is.na(`flows.flow:QC`)) |>
-#   filter(flows.universalTime > '2022-08-27 00:00:00' & flows.universalTime < '2023-08-27 00:00:00') |>
-#   group_by(sensorID) |>
-#   count()
-#   
-# #various plots 6 months either side of CAZ
-# 
-# master_tf_join |>
-#   filter(`flows.flow:QC` == 8) |>
-#   filter(flows.universalTime > '2022-08-27 00:00:00' & flows.universalTime < '2023-08-27 00:00:00') |>
-#   ggplot(aes(x = flows.universalTime, y = flows.flow)) +
-#   geom_line() +
-#   facet_wrap(~ sensorID, scales = "free_y") +
-#   scale_x_datetime(
-#     date_labels = "%d/%m",
-#     date_breaks = "1 month"
-#   ) +
-#   theme_minimal()
-# 
-# 
-# 
-# 
-# # 
+
+
 # # # SCC data uptime plots ---------------------------------------------------
 # # 
 # # plot_sensor_uptime <- function(df,
