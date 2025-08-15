@@ -140,20 +140,22 @@ df_caz     <- sf_to_df(caz_ll)
 df_ring    <- sf_to_df(ring_ll)
 
 # 4) pull lon/lat + category out of aq_sensor_ll/tf_sensor_ll
-aq_sensor_df_ll <- aq_sensor_ll |>
-  mutate(lon = st_coordinates(.)[,1],
-         lat = st_coordinates(.)[,2]) |>
+aq_sensor_df_ll <- aq_sensor_ll %>%
+  mutate(coords = st_coordinates(geometry),
+         lon = coords[,1],
+         lat = coords[,2]) %>%
   st_drop_geometry()
 
-tf_sensor_df_ll <- tf_sensor_ll |>
-  mutate(lon = st_coordinates(.)[,1],
-         lat = st_coordinates(.)[,2]) |>
-  st_drop_geometry() |>
-  mutate(sensorID = str_replace_all(sensorID, "[^[:alnum:]]", ""))
+tf_sensor_df_ll <- tf_sensor_ll %>%
+  mutate(coords = st_coordinates(geometry),
+         lon = coords[,1],
+         lat = coords[,2],
+         sensorID = str_replace_all(sensorID, "[^[:alnum:]]", "")) %>%
+  st_drop_geometry()
 
 # plot aq on basemap
 basemap +
-  # the 1000m exterior ring
+  # the exterior ring
   geom_polygon(
     data    = df_ring,
     aes(x    = lon, y = lat, group = group),
@@ -180,7 +182,7 @@ basemap +
 
 #plot tf on basemap
 basemap +
-  # the 500 m exterior ring
+  # the exterior ring
   geom_polygon(
     data    = df_ring,
     aes(x    = lon, y = lat, group = group),
@@ -313,7 +315,7 @@ matched_outer <- tf_sensor_m |> filter(side == "outer") |>
 
 sensor_to_road <- bind_rows(matched_inner, matched_outer)
 
-# set all ring road sensors to be inside CAZ
+# set all ring road sensors to be inside CAZ and as a single variable
 ring_road <- c("Saint Mary's Road",
                "Saint Mary's Gate",
                "Suffolk Road",
@@ -326,8 +328,9 @@ ring_road <- c("Saint Mary's Road",
                "Hanover Way",
                "Hoyle Street")
             
+#wrangle data to get the categories right
 
-sensor_to_road <- sensor_to_road |>
+sensor_to_road_RDD <- sensor_to_road |>
   mutate(category = case_when(
     name %in% ring_road ~ "Inside CAZ",
     TRUE                ~ category
@@ -338,10 +341,17 @@ sensor_to_road <- sensor_to_road |>
   )) |>
   mutate(ref = case_when(
     ref == "A61" & category == "Inside CAZ" ~ "A61 Ring Road",
-    ref == "A61" & category == "CAZ Adjacent" ~ "A61 non-CAZ",
+    ref == "A61" & category == "CAZ Adjacent" ~ "A61",
     TRUE ~ ref
   )) |>
-  mutate(highway = ifelse(highway == 'trunk', 'primary', highway)) 
+  mutate(ref = case_when(
+    category == 'Inside CAZ' & ref != 'A61 Ring Road' ~ 'CAZ interior road',
+    TRUE ~ ref
+  )) |>
+  mutate(highway = ifelse(highway == 'trunk', 'primary', highway)) |>
+  filter(highway == 'primary' | highway == 'secondary') |>
+  mutate(sensorID = str_replace_all(sensorID, "[^A-Za-z0-9]", "")) |>
+  filter(ref !=is.na(ref))
 
 #plot the roads on a map
 
@@ -355,6 +365,8 @@ roads_map <- roads_outer |>
     highway == "trunk" ~ "primary",
     TRUE                   ~ "other"
   ))
+
+
 
 
 bbox_ll <- st_as_sfc(st_bbox(c(xmin = sheffield[1], ymin = sheffield[2],
@@ -375,7 +387,7 @@ basemap +
     aes(x    = lon, y = lat, group = group),
     fill  = alpha("pink", 0.5),
     color   = "red",
-    size    = 0.6
+    linewidth    = 1
   ) +
   scale_color_manual(values = c("primary" = "darkblue", 
                                 "secondary" = "limegreen")) +

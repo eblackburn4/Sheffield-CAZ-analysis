@@ -106,8 +106,6 @@ master_aq_raw <- bind_rows(
 )
 
 
-
-
 #remove individual datasets
 rm(SCC_aq_raw, EW_aq_raw, defra_aq_raw, AM_aq_raw)
 
@@ -170,15 +168,20 @@ master_aq_join |>
 
 #aggregate the traffic data to be per hour by grouping the timestamps into hourly bins
 #so it can be weather-normalised
+#then join to the sensor metadata, only including sensors on primary/secondary roads and inside the CAZ
 
 master_tf_join_hourly <- master_tf_join |>
   mutate(hr = floor_date(DateTime, "hour")) |> 
   group_by(sensorID, hr, category) |>
   summarise(cars_per_hour = sum(5*flow, na.rm = TRUE), .groups = "drop") |>
-  arrange(sensorID, hr)
+  arrange(sensorID, hr) |>
+  inner_join(sensor_to_road_RDD, by = "sensorID") |>
+  select(-c('match_method', 'match_dist_m', 'category.y', 'road_id')) |>
+  rename(date = hr)
 
 rm(master_tf_join)
 
+  
 # recreate maps with only included sensors --------------------------------
 aq_sensor_df_ll_RDD <- aq_sensor_df_ll |>
   filter(sensor_id %in% master_aq_join$SensorID)

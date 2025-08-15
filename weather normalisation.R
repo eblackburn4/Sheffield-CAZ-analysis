@@ -71,8 +71,8 @@ weather_norm <- function(sensor, pollutant){
         'wd_dir',
         'rel_hum'
       ),
-      n_trees = 1000,
-      n_samples = 500,
+      n_trees = 300,
+      n_samples = 300,
       verbose = TRUE,
       se = FALSE
     )
@@ -145,48 +145,46 @@ DFR_PM25 <- weather_norm("DFR_1027A", "PM25")
 # norm_plots(DFR_NO2)
 # norm_plots(DFR_PM25)
 
-GH3_PM25$normalised |>
-  filter(day >= as.Date("2022-08-27") & day <= as.Date("2023-08-27")) |>
-  ggplot(aes(x = day, y = mean_value)) +
-  geom_line() +
-  labs(
-    x = "Date",
-    y = "PM2.5",
-    title = 'GH4 PM2.5 Normalised Time Series'
-  ) +
-  theme_minimal()
+# GH3_PM25$normalised |>
+#   filter(day >= as.Date("2022-08-27") & day <= as.Date("2023-08-27")) |>
+#   ggplot(aes(x = day, y = mean_value)) +
+#   geom_line() +
+#   labs(
+#     x = "Date",
+#     y = "PM2.5",
+#     title = 'GH4 PM2.5 Normalised Time Series'
+#   ) +
+#   theme_minimal()
 
 # Traffic normalisation ---------------------------------------------------
+#apply rmweather to averaged readings within sensor groups
 
-#aggregate up to hourly data
-master_tf_join |>
-  mutate()
-
-traffic_norm <- function(sensor){
-  master_tf_join |>
-    filter(SensorID == sensor) |>
-    rmw_prepare_data(value = pollutant, na.rm = TRUE) |> 
+traffic_norm <- function(road){
+  master_tf_join_hourly |>
+    filter(ref == road) |>
+    group_by(date) |>
+    summarise(cars_per_hour = mean(cars_per_hour, na.rm = TRUE), 
+              .groups = 'drop') |>
+    rmw_prepare_data(value = 'cars_per_hour', na.rm = TRUE) |> 
     rmw_do_all(
       variables = c(
         "date_unix", 
         "day_julian", 
         "weekday",
-        'hour', 
-        "total_rain", 
-        "surface_pressure", 
-        "temp_2m", 
-        "solar_rads",
-        "wd_spd",
-        'wd_dir',
-        'rel_hum'
-      ),
-      n_trees = 1000,
-      n_samples = 500,
+        'hour'),
+      n_trees = 300,
+      n_samples = 300,
       verbose = TRUE,
       se = FALSE
     )
 }
 
+#generate averaged, normalised time series for each road
+refs <- master_tf_join_hourly |> distinct(ref) |> pull(ref)
+
+traffic_norm_list <- refs |>
+  set_names() |>                
+  map(traffic_norm)   
 
 
 
