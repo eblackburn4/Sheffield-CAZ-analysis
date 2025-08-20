@@ -161,7 +161,7 @@ basemap +
     aes(x    = lon, y = lat, group = group),
     fill  = alpha("lightblue", 0.6),
     color   = "blue",
-    size    = 0.6,
+    linewidth    = 0.6,
   ) +
   # the CAZ polygon
   geom_polygon(
@@ -169,7 +169,7 @@ basemap +
     aes(x    = lon, y = lat, group = group),
     fill  = alpha("pink", 0.5),
     color   = "red",
-    size    = 0.6
+    linewidth   = 0.6
   ) +
   geom_point(
     data = aq_sensor_df_ll,
@@ -196,7 +196,7 @@ basemap +
     aes(x    = lon, y = lat, group = group),
     color   = "#cc4778",
     fill   = alpha("#cc4778", 0.2),
-    size    = 0.3
+    linewidth    = 0.3
   ) +
   geom_point(
     data = tf_sensor_df_ll,

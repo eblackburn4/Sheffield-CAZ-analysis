@@ -110,6 +110,10 @@ master_aq_raw <- bind_rows(
 rm(SCC_aq_raw, EW_aq_raw, defra_aq_raw, AM_aq_raw)
 
 #join to sensor metadata and filter for only CAZ-adjacent sensors with at least 6 months of data
+
+start <- as.POSIXct("2022-08-27 00:00:00", tz = "UTC")
+end   <- as.POSIXct("2023-08-26 00:00:00", tz = "UTC")
+
 master_aq_join <- aq_sensor_df_ll |>
   select(SensorID = sensor_id,
          type,
@@ -118,9 +122,23 @@ master_aq_join <- aq_sensor_df_ll |>
   filter(category != 'Other') |>
   group_by(SensorID) |>
   filter(max(DateTime) >= '2023-08-26 00:00:00' & 
-         min(DateTime) <= '2022-08-27 00:00:00') 
+         min(DateTime) <= '2022-09-27 00:00:00') |>
+  filter(DateTime >= start, DateTime <= end) |>
+  filter(mean(is.na(PM25)) | mean(is.na(NO2)) <= 0.10) 
 
-rm(master_aq_raw)
+#rm(master_aq_raw)
+
+#summarise percentage of NA for each pollutants and sensor
+master_aq_join |>
+  ungroup() |>
+  group_by(SensorID) |>
+  select(SensorID, PM25, NO2) |>
+  summarise(
+    PM25_NA = mean(is.na(PM25)),
+    NO2_NA = mean(is.na(NO2))
+  )
+
+
 
 # read in and QA traffic flow data -----------------------------------------------
 traffic_sensor_names <- list.files("Data/Traffic", pattern = "\\.csv$", full.names = TRUE)
@@ -134,9 +152,6 @@ traffic_raw <- map_dfr(traffic_sensor_names, read_csv, .id = "file_id") |>
   mutate(sensorID = str_replace_all(sensorID, "[^[:alnum:]]", ""))
 
 #join to sensor metadata and filter for only sensors with at least 6 months of data and no more than 10% missing values
-
-start <- as.POSIXct("2022-08-27 00:00:00", tz = "UTC")
-end   <- as.POSIXct("2023-08-26 00:00:00", tz = "UTC")
 
 master_tf_join <- tf_sensor_df_ll |>
   select(sensorID, category) |>

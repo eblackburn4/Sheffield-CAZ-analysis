@@ -1,3 +1,10 @@
+# data imputation
+# mutate(
+#   mean_value   = na.approx(mean_value,   x = day, na.rm = FALSE),
+#   median_value = na.approx(median_value, x = day, na.rm = FALSE),
+#   t = as.numeric(day - CAZ_start))
+
+
 
 ## ---------------------------
 ## Purpose of script: RDD analysis of AQ and traffic data
@@ -27,24 +34,21 @@ daily_avg <- function(sensor) {
               median_value = median(value_predict), 
               .groups = "drop") |>
     complete(day = seq(min(day), max(day), by = "day")) |>
-    mutate(
-      mean_value   = na.approx(mean_value,   x = day, na.rm = FALSE),
-      median_value = na.approx(median_value, x = day, na.rm = FALSE),
-      t = as.numeric(day - CAZ_start)
-    )       
+    mutate(t = as.numeric(day - CAZ_start))
   sensor
 } 
 
 #apply daily average to all sensors
 
 AQ_norm_list <- list(  GH4_NO2  = GH4_NO2,
-                       GH4_PM25 = GH4_PM25,
                        GH3_NO2  = GH3_NO2,
                        GH3_PM25 = GH3_PM25,
                        GH6_NO2  = GH6_NO2,
                        GH6_PM25 = GH6_PM25,
                        DFR_NO2  = DFR_NO2,
-                       DFR_PM25 = DFR_PM25 )
+                       DFR_PM25 = DFR_PM25,
+                       AMF245_NO2 = AMF245_NO2,
+                       AMF245_PM25 = AMF245_PM25)
 
 AQ_norm_list <- map(AQ_norm_list, daily_avg)
 list2env(AQ_norm_list, envir = .GlobalEnv)
@@ -73,39 +77,90 @@ norm_plot <- function(sensor, h = 70) {
   df
 }
 
+#calculate optimal bandwidth, and remove any sensors that have more than 10% of NAs within bandwidth
+screen_by_bw_na <- function(AQ_norm_list, max_na_pct = 10) {
+  
+  res <- imap_dfr(AQ_norm_list, function(sensor, nm) {
+    t <- sensor$normalised$t
+    y <- sensor$normalised$mean_value
+    
+    # bandwidth estimated on complete cases only
+    cc <- which(!is.na(t) & !is.na(y))
+    bw <- tryCatch(
+      if (length(cc) >= 20) {
+        rdrobust::rdbwselect(y = y[cc], x = t[cc])$bws[1, 1]
+      } else NA_real_,
+      error = function(e) NA_real_
+    )
+    
+    # compute %NA within ±bw using original series
+    if (is.na(bw)) {
+      tibble(
+        sensor = nm,
+        bandwidth = NA_real_,
+        total_in_bw = NA_integer_,
+        na_in_bw = NA_integer_,
+        pct_na_in_bw = NA_real_
+      )
+    } else {
+      df <- tibble(t = t, y = y) %>% filter(!is.na(t), abs(t) <= bw)
+      total_in_bw <- nrow(df)
+      na_in_bw    <- sum(is.na(df$y))
+      pct_na_in_bw <- if (total_in_bw > 0) 100 * na_in_bw / total_in_bw else NA_real_
+      
+      tibble(
+        sensor = nm,
+        bandwidth = bw,
+        total_in_bw = total_in_bw,
+        na_in_bw = na_in_bw,
+        pct_na_in_bw = pct_na_in_bw
+      )
+    }
+  })
+  
+  keep_ids <- res %>%
+    filter(!is.na(bandwidth), !is.na(pct_na_in_bw), total_in_bw > 0, pct_na_in_bw <= max_na_pct) %>%
+    pull(sensor)
+  
+  clean_list <- AQ_norm_list[keep_ids]
+  
+  list(clean_list = clean_list, summary = res)
+}
+
+AQ_norm_list_clean <- screen_by_bw_na(AQ_norm_list, max_na_pct = 10)
+
 #calculate optimal bandwidth across all sensors and take the median
 aq_bw_all <- map(AQ_norm_list, function(sensor) {
   x <- rdbwselect(y = sensor$normalised$mean_value, x = sensor$normalised$t)
   x$bws[1,1]
-})
-
-#take median optimal bandwidth for consistency across sensors
-aq_median_bw <- round(median(unlist(aq_bw_all)))
-
-#do the same but for the donut
-
-aq_bw_all_d <- map(AQ_norm_list, function(sensor) {
-  x <- rdbwselect(y = sensor$normalised$mean_value, x = sensor$normalised$t)
-  x$bws[1,1]
-})
-
-#function to calculate MDE for all sensors
-RDD_mde <- map(AQ_norm_list, function(sensor) {
-  x <- rdmde(data = cbind(sensor$normalised$mean_value, sensor$normalised$t),
-              h = 26,
-              cutoff = 0,
-              alpha = 0.05,
-              beta = 0.8
+}) |> as_tibble() |> pivot_longer(cols = everything(), names_to = "sensor", values_to = "bandwidth") |>
+  rename(sensor_pollutant = sensor) |>
+  mutate(
+    sensor    = str_replace(sensor_pollutant, "_(NO2|PM2?5)$", ""),
+    pollutant = str_extract(sensor_pollutant, "(NO2|PM2?5)")
   )
-  x$mde
-})
-
-test <- rdmde(data = cbind(GH3_PM25$normalised$median_value, GH3_PM25$normalised$t), 
-              p = 1, alpha = 0.05)
 
 
 
-#function to run RDD analysis on AQ sensors
+
+
+# #function to calculate MDE for all sensors
+# RDD_mde <- map(AQ_norm_list, function(sensor) {
+#   x <- rdmde(data = cbind(sensor$normalised$mean_value, sensor$normalised$t),
+#               h = 26,
+#               cutoff = 0,
+#               alpha = 0.05,
+#               beta = 0.8
+#   )
+#   x$mde
+# })
+# 
+# test <- rdmde(data = cbind(GH3_PM25$normalised$median_value, GH3_PM25$normalised$t), 
+#               p = 1, alpha = 0.05)
+# 
+# 
+
+#function to run core RDD analysis on AQ sensors and plot graps
 
 RDD_AQ_fn <- function(sensor, h = NULL, donut_hole = 0, p = 1) {
   sensor_name <- deparse(substitute(sensor))
@@ -152,7 +207,6 @@ RDD_AQ_fn <- function(sensor, h = NULL, donut_hole = 0, p = 1) {
     #bw_d <- rdbwselect(y = df_donut$mean_value, x = df_donut$t)
     #sensor$RDD_donut$bw_select <- bw_d
     
-    # --- CHANGED: get h_sharp from earlier bw_select and keep same # of points per side ---
     h_sharp <- ifelse(!is.null(h), as.numeric(h), as.numeric(bw_select$bws[1, ]))
     h_d     <- h_sharp + donut_hole  # ensures same # points per side as sharp RDD
     
@@ -214,14 +268,17 @@ RDD_AQ_fn <- function(sensor, h = NULL, donut_hole = 0, p = 1) {
 
 
 # Run RDD analysis for each sensor with and without donut holes
-GH4_NO2_RDD <- RDD_AQ_fn(GH4_NO2, p = 1, donut_hole = 28)
-GH4_PM25_RDD <- RDD_AQ_fn(GH4_PM25, p = 1, donut_hole = 0)
+GH4_NO2_RDD <- RDD_AQ_fn(GH4_NO2, donut_hole = 0)
+GH4_PM25_RDD <- RDD_AQ_fn(GH4_PM25, donut_hole = 0)
 DFR_NO2_RDD <- RDD_AQ_fn(DFR_NO2, donut_hole = 0)
 DFR_PM25_RDD <- RDD_AQ_fn(DFR_PM25, donut_hole = 0)
 GH6_NO2_RDD <- RDD_AQ_fn(GH6_NO2, donut_hole = 0)
-GH6_PM25_RDD <- RDD_AQ_fn(GH6_PM25, p = 1, donut_hole = 0)
+GH6_PM25_RDD <- RDD_AQ_fn(GH6_PM25, donut_hole = 0)
 GH3_NO2_RDD <- RDD_AQ_fn(GH3_NO2, donut_hole = 0)
 GH3_PM25_RDD <- RDD_AQ_fn(GH3_PM25, donut_hole = 0)
+AMF_NO2_RDD <- RDD_AQ_fn(AMF245_NO2, donut_hole = 0)
+AMF_PM25_RDD <- RDD_AQ_fn(AMF245_PM25, donut_hole = 0)
+
 
 #pack into a list
 AQ_RDD_list <- list(GH4_NO2_RDD = GH4_NO2_RDD, 
@@ -231,7 +288,9 @@ AQ_RDD_list <- list(GH4_NO2_RDD = GH4_NO2_RDD,
                     GH6_NO2_RDD = GH6_NO2_RDD,
                     GH6_PM25_RDD = GH6_PM25_RDD,
                     GH3_NO2_RDD = GH3_NO2_RDD,
-                    GH3_PM25_RDD = GH3_PM25_RDD)
+                    GH3_PM25_RDD = GH3_PM25_RDD,
+                    AMF_PM25_RDD = AMF_PM25_RDD,
+                    AMF_NO2_RDD = AMF_NO2_RDD)
 
 #function that pulls out the key coefs for each sensor-pollutant pair into one table
 extract_coefs <- function(list) {
@@ -368,7 +427,7 @@ donut_sensitivity_aq <- RDD_donut_sensitivity(list(GH4_NO2_RDD,
 #produce forest plot for donuts
 shape_map <- c('ns' = 20, "p < 0.05" = 8)
 
-plot_one_pollutant <- function(df, pol) {
+forest_plot_donut <- function(df, pol) {
   df %>%
     filter(pollutant == pol) %>%
     mutate(sig_lab = ifelse(significant == 1, "p < 0.05", "ns"),
@@ -390,13 +449,8 @@ plot_one_pollutant <- function(df, pol) {
           legend.position = "bottom")
 }
 
-plot_one_pollutant(donut_sensitivity_aq, "NO2")
-plot_one_pollutant(donut_sensitivity_aq, "PM25")
-
-
-
-
-#function to calculate MDE for all sensors
+forest_plot_donut(donut_sensitivity_aq, "NO2")
+forest_plot_donut(donut_sensitivity_aq, "PM25")
 
 
 
@@ -406,7 +460,7 @@ plot_one_pollutant(donut_sensitivity_aq, "PM25")
 
 #aggregate data to be daily sum of cars rather than hourly, add running variable and impute
 daily_avg_traffic <- function(road) {
-  road$normalised <- road$normalised |>
+  road$normalised_daily <- road$normalised |>
     mutate(day = as_date(date)) |>
     group_by(day) |>
     summarise(cars_per_day = sum(value_predict, na.rm = TRUE),
@@ -520,23 +574,101 @@ RDD_traffic_fn <- function(road, h = NULL, donut_hole = 0) {
   }
   return(road)
 }
-# Run RDD analysis for each road with and without donut holes with map
+# Run RDD analysis for each road without donut holes with map
 traffic_RDD_list <- map(traffic_norm_list, function(road) {
-  RDD_traffic_fn(road, h = tf_median_bw, donut_hole = 0)
+  RDD_traffic_fn(road, donut_hole = 0)
 })
 
 #make a dataframe of robust coefficients and CIs for all traffic sensors
 traffic_RDD_df <- map_dfr(traffic_RDD_list, function(road) {
   est <- road$RDD$est
-  data.frame(
-    sensor = deparse(substitute(road)),
-    coef = est$coef["Robust", "Coeff"],
-    p_value = est$pv["Robust", "P>|z|"],
-    ci_lower = est$ci["Robust", "CI Lower"],
-    ci_upper = est$ci["Robust", "CI Upper"]
+  tibble(
+    coef     = est$coef["Robust","Coeff"],
+    p_value  = est$pv["Robust","P>|z|"],
+    ci_lower = est$ci["Robust","CI Lower"],
+    ci_upper = est$ci["Robust","CI Upper"]
   )
-})
+}, .id = "sensor")
+
+#forest plot
+ggplot(traffic_RDD_df, aes(x = coef, y = sensor)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ci_lower, xmax = ci_upper), 
+                width = 0.2, size = 0.8) +  # width controls cap length
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  labs(
+    x = "RDD Estimate (Bias-corrected)",
+    y = "Sensor"
+  ) +
+  theme_ipsum_rc() +
+  labs(title = 'Sharp RDD estimates for traffic sensors',
+       subtitle = 'Bars show 95% confidence intervals') +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(face = "bold"),
+    axis.text.y = element_text(size = 10),
+  )
+
+# Function to run RDD analysis for each road with donut holes of 4, 5, 6 weeks respectively
+RDD_donut_sensitivity_tf <- function(sensors, donut_weeks = c(4, 5, 6), h = NULL) {
+  # Infer sensor names from the call if not provided
+  if (is.null(names(sensors)) || any(names(sensors) == "")) {
+    call_sensors <- match.call(expand.dots = FALSE)$sensors
+    if (is.call(call_sensors) && call_sensors[[1]] == "list") {
+      inferred_names <- sapply(call_sensors[-1], deparse)
+      names(sensors) <- inferred_names
+    }
+  }
+  
+  # convert weeks to days for hole sizes
+  donut_days <- donut_weeks * 7
+  metrics <- c("coef", "p_value", "significant", "ci_lower", "ci_upper")
+  
+  sensor_results <- lapply(sensors, function(sensor) {
+    df <- sensor$normalised
+    # bandwidth from full sample (as in original function)
+    bw_select <- rdbwselect(y = df$cars_per_day, x = df$t)
+    
+    res_vec <- unlist(lapply(donut_days, function(donut_hole) {
+      df_donut <- subset(df, abs(t) > donut_hole)
+      est_args <- list(y = df_donut$cars_per_day, x = df_donut$t, p = 1,
+                       all = TRUE, kernel = "uniform")
+      est_args$h <- ifelse(!is.null(h), h + donut_hole,
+                           bw_select$bws[1, ] + donut_hole)
+      est_d <- do.call(rdrobust, est_args)
+      coef <- est_d$coef["Robust", "Coeff"]
+      pval <- est_d$pv["Robust", "P>|z|"]
+      ci_low <- est_d$ci["Robust", "CI Lower"]
+      ci_high <- est_d$ci["Robust", "CI Upper"]
+      significant <- pval < 0.05
+      c(coef, pval, significant, ci_low, ci_high)
+    }))
+    
+    names(res_vec) <- unlist(lapply(donut_weeks, function(w)
+      paste(metrics, paste0(w, "w"), sep = "_")))
+    res_vec
+  })
+  
+  result_df <- data.frame(sensor_results, check.names = FALSE)
+  rownames(result_df) <- names(sensor_results[[1]])
+  colnames(result_df) <- names(sensor_results)
+  return(result_df)
+}
 
 
 
 
+#apply to the roads list
+traffic_donut_sensitivity_df <- RDD_donut_sensitivity_tf(traffic_RDD_list) |>
+  rownames_to_column("metric") |>
+  pivot_longer(-metric, names_to = "sensor", values_to = "value") |>
+  pivot_wider(names_from = metric, values_from = value) |>
+  mutate(pollutant = "Cars",
+         type = "Traffic") |>
+  pivot_longer(
+    cols = starts_with("coef_4w"):starts_with("ci_upper_6w"),
+    names_to = c(".value", "donut"),
+    names_pattern = "(coef|p_value|significant|ci_lower|ci_upper)_(4w|5w|6w)"
+  ) |>
+  mutate(sensor = factor(sensor, levels = unique(sensor)),
+         donut = factor(donut, levels = c("4w", "5w", "6w")))
