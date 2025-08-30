@@ -18,6 +18,7 @@ library(rdrobust)
 library(ggpattern)
 library(rdpower)
 library(zoo)
+library(scico)
 
 
 # RDD estimators for AQ data ----------------------------------------------
@@ -40,42 +41,9 @@ daily_avg <- function(sensor) {
 
 #apply daily average to all sensors
 
-AQ_norm_list <- list(  GH4_NO2  = GH4_NO2,
-                       GH3_NO2  = GH3_NO2,
-                       GH3_PM25 = GH3_PM25,
-                       GH6_NO2  = GH6_NO2,
-                       GH6_PM25 = GH6_PM25,
-                       DFR_NO2  = DFR_NO2,
-                       DFR_PM25 = DFR_PM25,
-                       AMF245_NO2 = AMF245_NO2,
-                       AMF245_PM25 = AMF245_PM25)
-
 AQ_norm_list <- map(AQ_norm_list, daily_avg)
 list2env(AQ_norm_list, envir = .GlobalEnv)
 
-#example normalised time series plot with CAZ date line
-ggplot(GH6_PM25$normalised, aes(x = t)) +
-  geom_line(aes(y = mean_value), color = 'blue') +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-  labs(title = "GH6 PM25 Daily Mean Values",
-       x = "Date",
-       y = "Mean NO2 Concentration") +
-  theme_ipsum_rc()
-#function to plot normalised time series 5 weeks either side of bandwidth
-norm_plot <- function(sensor, h = 70) {
-  sensor_name <- deparse(substitute(sensor))
-  
-  df <- sensor$normalised |>
-        filter(t >= -h & t <= h) |>
-        ggplot(aes(x = t, y = mean_value)) +
-          geom_line(color = 'blue') +
-        geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-          labs(title = paste(sensor_name, "Normalised Time Series"),
-               x = "Date",
-               y = "Mean Daily Concentration") +
-          theme_ipsum_rc()
-  df
-}
 
 #calculate optimal bandwidth, and remove any sensors that have more than 10% of NAs within bandwidth
 screen_by_bw_na <- function(AQ_norm_list, max_na_pct = 10) {
@@ -103,7 +71,7 @@ screen_by_bw_na <- function(AQ_norm_list, max_na_pct = 10) {
         pct_na_in_bw = NA_real_
       )
     } else {
-      df <- tibble(t = t, y = y) %>% filter(!is.na(t), abs(t) <= bw)
+      df <- tibble(t = t, y = y) |> filter(!is.na(t), abs(t) <= bw)
       total_in_bw <- nrow(df)
       na_in_bw    <- sum(is.na(df$y))
       pct_na_in_bw <- if (total_in_bw > 0) 100 * na_in_bw / total_in_bw else NA_real_
@@ -118,8 +86,8 @@ screen_by_bw_na <- function(AQ_norm_list, max_na_pct = 10) {
     }
   })
   
-  keep_ids <- res %>%
-    filter(!is.na(bandwidth), !is.na(pct_na_in_bw), total_in_bw > 0, pct_na_in_bw <= max_na_pct) %>%
+  keep_ids <- res |>
+    filter(!is.na(bandwidth), !is.na(pct_na_in_bw), total_in_bw > 0, pct_na_in_bw <= max_na_pct) |>
     pull(sensor)
   
   clean_list <- AQ_norm_list[keep_ids]
@@ -127,9 +95,8 @@ screen_by_bw_na <- function(AQ_norm_list, max_na_pct = 10) {
   list(clean_list = clean_list, summary = res)
 }
 
-AQ_norm_list_clean <- screen_by_bw_na(AQ_norm_list, max_na_pct = 10)
+AQ_norm_list_clean <- screen_by_bw_na(AQ_norm_list, max_na_pct = 5)
 
-#calculate optimal bandwidth across all sensors and take the median
 aq_bw_all <- map(AQ_norm_list, function(sensor) {
   x <- rdbwselect(y = sensor$normalised$mean_value, x = sensor$normalised$t)
   x$bws[1,1]
@@ -139,9 +106,6 @@ aq_bw_all <- map(AQ_norm_list, function(sensor) {
     sensor    = str_replace(sensor_pollutant, "_(NO2|PM2?5)$", ""),
     pollutant = str_extract(sensor_pollutant, "(NO2|PM2?5)")
   )
-
-
-
 
 
 # #function to calculate MDE for all sensors
@@ -269,28 +233,28 @@ RDD_AQ_fn <- function(sensor, h = NULL, donut_hole = 0, p = 1) {
 
 # Run RDD analysis for each sensor with and without donut holes
 GH4_NO2_RDD <- RDD_AQ_fn(GH4_NO2, donut_hole = 0)
-GH4_PM25_RDD <- RDD_AQ_fn(GH4_PM25, donut_hole = 0)
-DFR_NO2_RDD <- RDD_AQ_fn(DFR_NO2, donut_hole = 0)
-DFR_PM25_RDD <- RDD_AQ_fn(DFR_PM25, donut_hole = 0)
+DFR1027_NO2_RDD <- RDD_AQ_fn(DFR1027_NO2, donut_hole = 0)
+DFR1027_PM25_RDD <- RDD_AQ_fn(DFR1027_PM25, donut_hole = 0)
+DFR1063_NO2_RDD <- RDD_AQ_fn(DFR1063_NO2, donut_hole = 0)
+DFR1063_PM25_RDD <- RDD_AQ_fn(DFR1063_PM25, donut_hole = 0)
 GH6_NO2_RDD <- RDD_AQ_fn(GH6_NO2, donut_hole = 0)
 GH6_PM25_RDD <- RDD_AQ_fn(GH6_PM25, donut_hole = 0)
 GH3_NO2_RDD <- RDD_AQ_fn(GH3_NO2, donut_hole = 0)
 GH3_PM25_RDD <- RDD_AQ_fn(GH3_PM25, donut_hole = 0)
-AMF_NO2_RDD <- RDD_AQ_fn(AMF245_NO2, donut_hole = 0)
 AMF_PM25_RDD <- RDD_AQ_fn(AMF245_PM25, donut_hole = 0)
 
 
 #pack into a list
-AQ_RDD_list <- list(GH4_NO2_RDD = GH4_NO2_RDD, 
-                    GH4_PM25_RDD = GH4_PM25_RDD,
-                    DFR_NO2_RDD = DFR_NO2_RDD,
-                    DFR_PM25_RDD = DFR_PM25_RDD,
+AQ_RDD_list <- list(GH4_NO2_RDD = GH4_NO2_RDD,
+                    DFR1027_NO2_RDD = DFR1027_NO2_RDD,
+                    DFR1027_PM25_RDD = DFR1027_PM25_RDD,
+                    DFR1063_NO2_RDD = DFR1063_NO2_RDD,
+                    DFR1063_PM25_RDD = DFR1063_PM25_RDD,
                     GH6_NO2_RDD = GH6_NO2_RDD,
                     GH6_PM25_RDD = GH6_PM25_RDD,
                     GH3_NO2_RDD = GH3_NO2_RDD,
                     GH3_PM25_RDD = GH3_PM25_RDD,
-                    AMF_PM25_RDD = AMF_PM25_RDD,
-                    AMF_NO2_RDD = AMF_NO2_RDD)
+                    AMF_PM25_RDD = AMF_PM25_RDD)
 
 #function that pulls out the key coefs for each sensor-pollutant pair into one table
 extract_coefs <- function(list) {
@@ -301,6 +265,7 @@ extract_coefs <- function(list) {
       ci_upper    <- est_obj$ci[3, 2]
       bw_val      <- est_obj$bws[1, 1]
       p_val       <- est_obj$pv[3]
+      se          <- est_obj$se[3]
       
       tibble(
         id        = name,
@@ -309,7 +274,8 @@ extract_coefs <- function(list) {
         ci_upper  = ci_upper,
         bandwidth = bw_val,
         p_value   = p_val,
-        sig_95    = p_val < 0.05
+        sig_95    = p_val < 0.05,
+        se        = se
       )
     }
   )
@@ -319,21 +285,25 @@ extract_coefs <- function(list) {
 
 AQ_RDD_summary <- extract_coefs(AQ_RDD_list) |>
   mutate(pollutant = str_extract(id, "NO2|PM25"),
-         sensor = str_extract(id, "GH4|GH3|GH6|DFR"),
+         sensor = str_extract(id, "GH4|GH3|GH6|DFR1027|DFR1063|AMF"),
          type = case_when(
-           sensor == 'GH4' | sensor == 'GH6' | sensor == 'DFR' ~ 'CAZ',
-           TRUE ~ 'non-CAZ'
-         )) 
+           sensor == 'GH4' | sensor == 'GH6' | sensor == 'DFR1063' | sensor == 'AMF245'  ~ 'CAZ',
+           TRUE ~ 'Spillover'
+         )) |>
+  arrange(desc(type), desc(estimator)) |>
+  mutate(sensor = factor(sensor, levels = unique(sensor))) |>
+  rename(coef = estimator)
 
 #forest plot of the estimators
 
-ggplot(AQ_RDD_summary, aes(y = sensor, x = estimator, colour = type)) +
+ggplot(AQ_RDD_summary, aes(y = sensor, x = estimator, colour = type, shape = sig_95)) +
   geom_point(size = 3) +
   geom_errorbar(aes(xmin = ci_lower, xmax = ci_upper), 
                 width = 0.2, size = 0.8) +  # width controls cap length
   geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
   facet_wrap(~ pollutant, scales = "free_y") +
-  scale_colour_viridis_d(option = 'D') +
+  scale_colour_manual(labels = c('CAZ', 'Spillover'), 
+                      values = c("CAZ" = "darkred", "Spillover" = "darkblue")) +
   labs(
     x = "RDD Estimate (Bias-corrected)",
     y = "Sensor",
@@ -352,7 +322,7 @@ ggplot(AQ_RDD_summary, aes(y = sensor, x = estimator, colour = type)) +
 #sensitivity analysis - produce output table of robust coefficients, p values and CIs for donut holes of 4, 5, 6 weeks respectively
 
 RDD_donut_sensitivity <- function(sensors, donut_weeks = c(4, 5, 6), h = NULL) {
-  # Infer sensor names from the call if not provided
+  
   if (is.null(names(sensors)) || any(names(sensors) == "")) {
     call_sensors <- match.call(expand.dots = FALSE)$sensors
     if (is.call(call_sensors) && call_sensors[[1]] == "list") {
@@ -360,14 +330,11 @@ RDD_donut_sensitivity <- function(sensors, donut_weeks = c(4, 5, 6), h = NULL) {
       names(sensors) <- inferred_names
     }
   }
-  
-  # convert weeks to days for hole sizes
-  donut_days <- donut_weeks * 7
-  metrics <- c("coef", "p_value", "significant", "ci_lower", "ci_upper")
+  donut_days = donut_weeks * 7
+  metrics <- c("coef", "p_value", "significant", "ci_lower", "ci_upper", "se")
   
   sensor_results <- lapply(sensors, function(sensor) {
     df <- sensor$normalised
-    # bandwidth from full sample (as in original function)
     bw_select <- rdbwselect(y = df$mean_value, x = df$t)
     
     res_vec <- unlist(lapply(donut_days, function(donut_hole) {
@@ -381,8 +348,9 @@ RDD_donut_sensitivity <- function(sensors, donut_weeks = c(4, 5, 6), h = NULL) {
       pval <- est_d$pv["Robust", "P>|z|"]
       ci_low <- est_d$ci["Robust", "CI Lower"]
       ci_high <- est_d$ci["Robust", "CI Upper"]
+      se <- est_d$se["Robust", "Std. Err."]
       significant <- pval < 0.05
-      c(coef, pval, significant, ci_low, ci_high)
+      c(coef, pval, significant, ci_low, ci_high, se)
     }))
     
     names(res_vec) <- unlist(lapply(donut_weeks, function(w)
@@ -398,27 +366,20 @@ RDD_donut_sensitivity <- function(sensors, donut_weeks = c(4, 5, 6), h = NULL) {
 
 #pull out coefficients and reshape for plotting
 
-donut_sensitivity_aq <- RDD_donut_sensitivity(list(GH4_NO2_RDD, 
-                                                   GH4_PM25_RDD, 
-                                                   DFR_NO2_RDD, 
-                                                   DFR_PM25_RDD, 
-                                                   GH6_NO2_RDD, 
-                                                   GH6_PM25_RDD, 
-                                                   GH3_NO2_RDD, 
-                                                   GH3_PM25_RDD)) |>
+donut_sensitivity_aq <- RDD_donut_sensitivity(AQ_norm_list) |>
                         rownames_to_column("metric") |>
                         pivot_longer(-metric, names_to = "sensor_pollutant", values_to = "value") |>
                         pivot_wider(names_from = metric, values_from = value) |>
                         mutate(pollutant = str_extract(sensor_pollutant, "NO2|PM25"),
-                               sensor = str_extract(sensor_pollutant, "GH4|GH3|GH6|DFR"),
+                               sensor = str_extract(sensor_pollutant, "GH4|GH3|GH6|DFR1027|DFR1063|AMF"),
                                type = case_when(
-                                 sensor == 'GH4' | sensor == 'GH6' | sensor == 'DFR' ~ 'CAZ',
-                                 TRUE ~ 'non-CAZ'
+                                 sensor == 'GH4' | sensor == 'GH6' | sensor == 'DFR1063' | sensor == 'AMF245'  ~ 'CAZ',
+                                 TRUE ~ 'Spillover'
                                )) |>
                         pivot_longer(
-                          cols = starts_with("coef_4w"):starts_with("ci_upper_6w"),
+                          cols = starts_with("coef_4w"):starts_with("se_6w"),
                           names_to = c(".value", "donut"),
-                          names_pattern = "(coef|p_value|significant|ci_lower|ci_upper)_(4w|5w|6w)"
+                          names_pattern = "(coef|p_value|significant|ci_lower|ci_upper|se)_(4w|5w|6w)"
                           ) |>
                         mutate(sensor = factor(sensor, levels = unique(sensor)),
                                donut = factor(donut, levels = c("4w", "5w", "6w")))
@@ -427,11 +388,11 @@ donut_sensitivity_aq <- RDD_donut_sensitivity(list(GH4_NO2_RDD,
 #produce forest plot for donuts
 shape_map <- c('ns' = 20, "p < 0.05" = 8)
 
-forest_plot_donut <- function(df, pol) {
-  df %>%
-    filter(pollutant == pol) %>%
+forest_plot_donut_aq <- function(df, pol) {
+  df |>
+    filter(pollutant == pol) |>
     mutate(sig_lab = ifelse(significant == 1, "p < 0.05", "ns"),
-           donut   = factor(donut, levels = c("4w","5w","6w"))) %>%
+           donut   = factor(donut, levels = c("4w","5w","6w"))) |>
     ggplot(aes(x = coef, y = sensor, colour = type, shape = sig_lab)) +
     geom_errorbarh(aes(xmin = ci_lower, xmax = ci_upper), height = 0.2, linewidth = 1) +
     geom_point(size = 2, stroke = 1.5) +
@@ -449,8 +410,8 @@ forest_plot_donut <- function(df, pol) {
           legend.position = "bottom")
 }
 
-forest_plot_donut(donut_sensitivity_aq, "NO2")
-forest_plot_donut(donut_sensitivity_aq, "PM25")
+forest_plot_donut_aq(donut_sensitivity_aq, "NO2")
+forest_plot_donut_aq(donut_sensitivity_aq, "PM25")
 
 
 
@@ -463,7 +424,7 @@ daily_avg_traffic <- function(road) {
   road$normalised_daily <- road$normalised |>
     mutate(day = as_date(date)) |>
     group_by(day) |>
-    summarise(cars_per_day = sum(value_predict, na.rm = TRUE),
+    summarise(cars_per_day = mean(value_predict, na.rm = TRUE),
               .groups = "drop") |>
     complete(day = seq(min(day), max(day), by = "day")) |>
     mutate(
@@ -478,18 +439,16 @@ traffic_norm_list <- map(traffic_norm_list, daily_avg_traffic)
 
 #calculate optimal bandwidth across all sensors and take the median
 tf_bw_all <- map(traffic_norm_list, function(road) {
-  x <- rdbwselect(y = road$normalised$cars_per_day, x = road$normalised$t)
+  x <- rdbwselect(y = road$normalised_daily$cars_per_day, x = road$normalised_daily$t)
   x$bws[1,1]
 })
 
-#take median optimal bandwidth for consistency across sensors
-tf_median_bw <- round(median(unlist(tf_bw_all)))
 
 #function to run RDD/donut analysis on traffic sensors
 
 RDD_traffic_fn <- function(road, h = NULL, donut_hole = 0) {
   road_name <- deparse(substitute(road))
-  df <- road$normalised
+  df <- road$normalised_daily
   
   # Initialize output containers
   road$RDD <- list()
@@ -574,21 +533,27 @@ RDD_traffic_fn <- function(road, h = NULL, donut_hole = 0) {
   }
   return(road)
 }
+
 # Run RDD analysis for each road without donut holes with map
+
 traffic_RDD_list <- map(traffic_norm_list, function(road) {
   RDD_traffic_fn(road, donut_hole = 0)
 })
 
-#make a dataframe of robust coefficients and CIs for all traffic sensors
+#make a dataframe of robust coefficients and CIs for all traffic sensors, join to metadata for inside-CAZ/road type info
 traffic_RDD_df <- map_dfr(traffic_RDD_list, function(road) {
   est <- road$RDD$est
   tibble(
     coef     = est$coef["Robust","Coeff"],
     p_value  = est$pv["Robust","P>|z|"],
     ci_lower = est$ci["Robust","CI Lower"],
-    ci_upper = est$ci["Robust","CI Upper"]
+    ci_upper = est$ci["Robust","CI Upper"],
+    se = est$se["Robust", 'Std. Err.']
   )
-}, .id = "sensor")
+}, .id = "sensor") |>
+  left_join(sensor_to_road_RDD, by = c("sensor" = "ref")) |> 
+  distinct(sensor, .keep_all = TRUE) |>
+  select(-c(sensorID, road_id, match_method, match_dist_m, name))
 
 #forest plot
 ggplot(traffic_RDD_df, aes(x = coef, y = sensor)) +
@@ -622,10 +587,10 @@ RDD_donut_sensitivity_tf <- function(sensors, donut_weeks = c(4, 5, 6), h = NULL
   
   # convert weeks to days for hole sizes
   donut_days <- donut_weeks * 7
-  metrics <- c("coef", "p_value", "significant", "ci_lower", "ci_upper")
+  metrics <- c("coef", "p_value", "significant", "ci_lower", "ci_upper","se")
   
   sensor_results <- lapply(sensors, function(sensor) {
-    df <- sensor$normalised
+    df <- sensor$normalised_daily
     # bandwidth from full sample (as in original function)
     bw_select <- rdbwselect(y = df$cars_per_day, x = df$t)
     
@@ -641,7 +606,8 @@ RDD_donut_sensitivity_tf <- function(sensors, donut_weeks = c(4, 5, 6), h = NULL
       ci_low <- est_d$ci["Robust", "CI Lower"]
       ci_high <- est_d$ci["Robust", "CI Upper"]
       significant <- pval < 0.05
-      c(coef, pval, significant, ci_low, ci_high)
+      se <- est_d$se["Robust", "Std. Err."]
+      c(coef, pval, significant, ci_low, ci_high, se)
     }))
     
     names(res_vec) <- unlist(lapply(donut_weeks, function(w)
@@ -656,19 +622,164 @@ RDD_donut_sensitivity_tf <- function(sensors, donut_weeks = c(4, 5, 6), h = NULL
 }
 
 
-
-
 #apply to the roads list
-traffic_donut_sensitivity_df <- RDD_donut_sensitivity_tf(traffic_RDD_list) |>
+tf_donut_sensitivity <- RDD_donut_sensitivity_tf(traffic_RDD_list) |>
   rownames_to_column("metric") |>
   pivot_longer(-metric, names_to = "sensor", values_to = "value") |>
   pivot_wider(names_from = metric, values_from = value) |>
   mutate(pollutant = "Cars",
          type = "Traffic") |>
   pivot_longer(
-    cols = starts_with("coef_4w"):starts_with("ci_upper_6w"),
+    cols = starts_with("coef_4w"):starts_with("se_6w"),
     names_to = c(".value", "donut"),
-    names_pattern = "(coef|p_value|significant|ci_lower|ci_upper)_(4w|5w|6w)"
+    names_pattern = "(coef|p_value|significant|ci_lower|ci_upper|se)_(4w|5w|6w)"
   ) |>
   mutate(sensor = factor(sensor, levels = unique(sensor)),
-         donut = factor(donut, levels = c("4w", "5w", "6w")))
+         donut = factor(donut, levels = c("4w", "5w", "6w"))) |>
+  mutate(type = str_extract(sensor, "^A|^B")) |>
+  mutate(road_type = case_when(type == 'A' ~ 'Primary road',
+                               type == 'B' ~ 'Secondary road',
+                               is.na(type) ~ 'CAZ Road',
+                               type == 'A61 Ring Road' ~ 'CAZ Road'),
+         category = case_when(road_type == 'Primary road' | road_type == 'Secondary road' ~ 'Spillover',
+                              road_type == 'CAZ Road' ~ 'CAZ') 
+         )|>
+  arrange(desc(road_type), desc(coef)) |>
+  mutate(sensor = factor(sensor, levels = unique(sensor))) 
+#forest plot for traffic donut
+
+forest_plot_donut_tf <- function(df) {
+  df |>
+    mutate(sig_lab = ifelse(significant == 1, "p < 0.05", "ns"),
+           donut   = factor(donut, levels = c("4w","5w","6w"))) |>
+    ggplot(aes(x = coef, y = sensor, colour = road_type, shape = sig_lab)) +
+    geom_errorbarh(aes(xmin = ci_lower, xmax = ci_upper), height = 0.2, linewidth = 1) +
+    geom_point(size = 2, stroke = 1.5) +
+    geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+    facet_wrap(~ donut, nrow = 1, scales = 'free_x') +
+    scale_colour_viridis_d() +
+    scale_shape_manual(values = shape_map) +
+    labs(x = "RD Estimate (robust) with 95% CI",
+         y = "Road", colour = "Road Type", shape = "Significance") +
+    theme_ipsum_rc() +
+    theme(panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          strip.text = element_text(face = "bold"),
+          legend.position = "bottom")
+}
+
+forest_plot_donut_tf(traffic_donut_sensitivity_df)
+
+
+
+# tables of aggregated coefficients: AQ ---------------------------------------
+
+pool_simple <- function(df){               
+  n   <- nrow(df)
+  tau <- mean(df$coef)
+  se  <- sqrt(sum(df$se^2)) / n    
+  z   <- tau / se
+  p   <- 2 * (1 - pnorm(abs(z)))
+  tibble(est_mean = tau,
+         se_mean  = se,
+         lo_mean  = tau - 1.96*se,
+         hi_mean  = tau + 1.96*se,
+         z_mean = z,
+         p_mean   = p)
+}
+
+pool_donut <- function(df){               
+  n   <- nrow(df)
+  tau <- mean(df$coef)
+  se  <- sqrt(sum(df$se^2)) / n    
+  z   <- tau / se
+  p   <- 2 * (1 - pnorm(abs(z)))
+  tibble(est_mean = tau,
+         se_mean  = se,
+         lo_mean  = tau - 1.96*se,
+         hi_mean  = tau + 1.96*se,
+         z_mean = z,
+         p_mean   = p)
+}
+
+
+#for Sharp AQ RDD
+# overall means by pollutant 
+aq_pooled <-
+  AQ_RDD_summary |>
+  group_by(pollutant) |>
+  group_modify(~ pool_simple(.x)) |>
+  ungroup()
+
+# within CAZ / Spillover by pollutant
+aq_CAZvsNot_pooled <-
+  AQ_RDD_summary |>
+  group_by(pollutant, type) |>
+  group_modify(~ pool_simple(.x)) |>
+  ungroup()
+
+aq_all_pooled <- bind_rows(aq_pooled, aq_CAZvsNot_pooled)
+rm(aq_pooled, aq_CAZvsNot_pooled)
+
+#for donut RDD
+# overall means by pollutant and donut hole size
+aq_donut_pooled <-
+  donut_sensitivity_aq |>
+  group_by(pollutant, donut) |>
+  group_modify(~ pool_donut(.x)) |>
+  ungroup()
+
+aq_donut_CAZvNot_pooled <-
+  donut_sensitivity_aq |>
+  group_by(pollutant, donut, type) |>
+  group_modify(~ pool_donut(.x)) |>
+  ungroup()
+
+aq_donut_all_pooled <- bind_rows(aq_donut_pooled, aq_donut_CAZvNot_pooled)
+rm(aq_donut_pooled, aq_donut_CAZvNot_pooled)
+
+# tables of aggregated coefficients: traffic ------------------------------
+
+#for Sharp traffic RDD
+tf_pooled <-
+  traffic_RDD_df |>
+  pool_simple() |>
+  mutate(category = "All traffic sensors")
+
+#by inside_caz/outside caz
+tf_CAZvNot_pooled <-
+  traffic_RDD_df |>
+  group_by(category) |>
+  group_modify(~ pool_simple(.x))
+
+#by primary/secondary road
+tf_primVsec_pooled <-
+  traffic_RDD_df |>
+  group_by(highway) |>
+  group_modify(~ pool_simple(.x))
+
+tf_all_pooled <- bind_rows(tf_pooled, tf_CAZvNot_pooled, tf_primVsec_pooled)
+rm(tf_pooled, tf_CAZvNot_pooled, tf_primVsec_pooled)
+
+
+#for donut RDD
+
+tf_donut_pooled <-
+  tf_donut_sensitivity |>
+  pool_donut()
+
+tf_donut_CAZvNot_pooled <-
+  tf_donut_sensitivity |>
+  group_by(category, donut) |>
+  group_modify(~ pool_donut(.x)) |>
+  ungroup()
+
+tf_donut_primVsec_pooled <-
+  tf_donut_sensitivity |>
+  group_by(road_type, donut) |>
+  group_modify(~ pool_donut(.x)) |>
+  ungroup()
+
+tf_donut_all_pooled <- bind_rows(tf_donut_pooled, tf_donut_CAZvNot_pooled, tf_donut_primVsec_pooled)
+rm(tf_donut_pooled, tf_donut_CAZvNot_pooled, tf_donut_primVsec_pooled)
+

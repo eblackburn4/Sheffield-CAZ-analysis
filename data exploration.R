@@ -9,6 +9,7 @@ library(tidyverse)
 library(hrbrthemes)
 library(rmweather)
 library(ggthemes)
+library(ggsflabel)
 
 ## ---------------------------
 
@@ -126,7 +127,7 @@ master_aq_join <- aq_sensor_df_ll |>
   filter(DateTime >= start, DateTime <= end) |>
   filter(mean(is.na(PM25)) | mean(is.na(NO2)) <= 0.10) 
 
-#rm(master_aq_raw)
+rm(master_aq_raw)
 
 #summarise percentage of NA for each pollutants and sensor
 master_aq_join |>
@@ -134,8 +135,8 @@ master_aq_join |>
   group_by(SensorID) |>
   select(SensorID, PM25, NO2) |>
   summarise(
-    PM25_NA = mean(is.na(PM25)),
-    NO2_NA = mean(is.na(NO2))
+    PM25_NA = mean(is.na(PM25)*100),
+    NO2_NA = mean(is.na(NO2)*100)
   )
 
 
@@ -194,12 +195,18 @@ master_tf_join_hourly <- master_tf_join |>
   select(-c('match_method', 'match_dist_m', 'category.y', 'road_id')) |>
   rename(date = hr)
 
+
 rm(master_tf_join)
 
   
 # recreate maps with only included sensors --------------------------------
 aq_sensor_df_ll_RDD <- aq_sensor_df_ll |>
-  filter(sensor_id %in% master_aq_join$SensorID)
+  filter(sensor_id %in% master_aq_join$SensorID) |>
+  mutate(category = case_when(
+    sensor_id == 'SCC_GH4' ~ 'Inside CAZ',
+    sensor_id == 'AMF_2450229' ~ 'Inside CAZ',
+    TRUE ~ category
+  ))
 
 tf_sensor_df_ll_RDD <- tf_sensor_df_ll |>
   filter(sensorID %in% master_tf_join_hourly$sensorID)
@@ -208,7 +215,7 @@ basemap +
   geom_polygon(
     data    = df_ring,
     aes(x    = lon, y = lat, group = group),
-    fill  = alpha("grey90", 0.6),
+    fill  = alpha("lightblue", 0.6),
     color   = "black",
     size    = 0.3,
   ) +
@@ -222,34 +229,39 @@ basemap +
   ) +
   geom_point(
     data = aq_sensor_df_ll_RDD,
-    aes(x   = lon, y = lat, shape = category),
+    aes(x   = lon, y = lat, color = category),
     size = 3, alpha = 0.8
   ) +
-  geom_text_repel(
+  geom_label_repel(
     data    = aq_sensor_df_ll_RDD,
-    aes(x = lon, y = lat, label = sensor_id),            # e.g. just above
-    size    = 3,             # font size
+    aes(x = lon, y = lat, label = sensor_id),
+    point.padding = 0,
+    label.padding = 0.15,
+    size    = 2,             
+    family = 'Roboto Condensed',
+    min.segment.length = 0,
     colour  = "black"
   ) +
+  scale_color_manual(labels = c('CAZ', 'Spillover'),
+                     values = c("Inside CAZ" = "darkred", 
+                                "CAZ Adjacent" = "darkblue")) +
   theme_void() +
   theme(legend.position = "bottom",
         legend.title = element_blank()) 
 
 basemap +
-  # the 500 m exterior ring
   geom_polygon(
     data    = df_ring,
     aes(x    = lon, y = lat, group = group),
     color   = "black",
-    fill = alpha("darkblue", 0.1),
+    fill = alpha("lightblue", 0.1),
     size    = 0.3,
   ) +
-  # the CAZ polygon
   geom_polygon(
     data    = df_caz,
     aes(x    = lon, y = lat, group = group),
-    color   = "#cc4778",
-    fill   = alpha("#cc4778", 0.2),
+    color   = "red",
+    fill   = alpha("pink", 0.2),
     size    = 0.3
   ) +
   geom_point(
@@ -257,286 +269,44 @@ basemap +
     aes(x   = lon, y = lat, color = category),
     size = 2, alpha = 0.8
   ) +
-  scale_color_manual(values = c("Inside CAZ" = "#9c335a", 
-                                "CAZ Adjacent" = "darkblue", 
-                                "Other" = "grey50")) +
+  scale_color_manual(labels = c('CAZ', 'Spillover'),
+                     values = c("Inside CAZ" = "darkred", 
+                                "CAZ Adjacent" = "darkblue")) +
   theme_void() +
   theme(legend.position = "bottom",
         legend.title = element_blank())
 
 
-
-# 
-# #QC overview for both pollutants (excludes SCC)
-# master_aq_join |>
-#   filter(DateTime > '2022-08-27 00:00:00' & DateTime < '2023-08-27 00:00:00') |>
-#   filter(PM25_QC != 0) |>
-#   group_by(PM25_QC, SensorID) |>
-#   count()
-# 
-# master_aq_join |>
-#   filter(DateTime > '2022-08-27 00:00:00' & DateTime < '2023-08-27 00:00:00') |>
-#   filter(NO2_QC != 0) |>
-#   group_by(NO2_QC, SensorID) |>
-#   count()
-# 
-# #check for NA values not included in the QC codes
-# master_aq_join |>
-#   filter(DateTime > '2022-08-27 00:00:00' & DateTime < '2023-08-27 00:00:00') |>
-#   filter(type != 'NO2') |>
-#   filter(is.na(PM25)) |>
-#   group_by(SensorID) |>
-#   count()
-# 
-# #plot template to investigate QC issues
-# 
-# master_aq_join |>
-#   ggplot(aes(x = DateTime, y = PM25)) +
-#   geom_line(color = 'darkgreen') +
-#   geom_vline(
-#     xintercept = as.POSIXct('2023-02-27 00:00:00', tz = "UTC"),
-#     linetype   = "dashed",
-#     color      = "black"
-#   ) +
-#   facet_wrap(~SensorID) +
-#   labs(title = "PM2.5 Readings", x = "DateTime", y = "NO2 Value") +
-#   theme_minimal()
-# 
-# master_aq_join |>
-#   filter(SensorID == 'SCC_GH6') |>
-#   mutate(value = ifelse(is.na(NO2), 1, 0)) |>
-#   ggplot(aes(x = DateTime, y = value)) +
-#   geom_line(color = 'black') +
-#   geom_vline(
-#     xintercept = as.POSIXct('2023-02-27 00:00:00', tz = "UTC"),
-#     linetype   = "dashed",
-#     color      = "black"
-#   ) +
-#   facet_wrap(~SensorID) +
-#   labs(title = "NA periods - GH6_NO2", x = "DateTime", y = "NO2 Value") +
-#   theme_minimal()
-# 
+#plot only roads with sensors included in study and at least 4 sensors per ref
+roads_map_RDD <- roads_map |>
+  filter(ref %in% master_tf_join_hourly$ref) 
+  
+basemap +
+  geom_sf(data = roads_map_RDD,
+          aes(color = high_cat),
+          inherit.aes = FALSE, linewidth = 0.9) +
+  coord_sf(xlim = c(sheffield[1], sheffield[3]),
+           ylim = c(sheffield[2], sheffield[4]),
+           expand = FALSE, datum = NA) +
+  geom_point(
+     data = tf_sensor_df_ll_RDD,
+     aes(x  = lon, y = lat),
+     size = 2, alpha = 0.8
+   ) +
+  geom_polygon(
+    data    = df_caz,
+    aes(x    = lon, y = lat, group = group),
+    fill  = alpha("pink", 0.5),
+    color   = "red",
+    linewidth    = 1
+  ) +
+  scale_color_manual(labels = c('Primary roads', 'Secondary roads'), 
+                     values = c("primary" = "darkblue", 
+                                "secondary" = "limegreen")) +
+  geom_sf_label(data = roads_map_labels, aes(label = ref), inherit.aes = FALSE, size = 3) +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, family = 'Roboto condensed'))
 
 
-# # # SCC data uptime plots ---------------------------------------------------
-# # 
-# # plot_sensor_uptime <- function(df,
-# #                                pollutant,
-# #                                downtime_hours = 24,
-# #                                date_breaks   = "6 months",
-# #                                date_labels   = "%d/%m/%Y") {
-# # 
-# #   # 1. Pivot to long, blank-out non-positive values
-# #   status <- df |>
-# #     pivot_longer(
-# #       cols       = -DateTime,
-# #       names_to   = c("location","pollutant", NA, NA),
-# #       names_sep  = ", ",
-# #       values_to  = "value"
-# #     ) |>
-# #     mutate(
-# #       value = ifelse(value <= 0, NA_real_, value)
-# #     ) |>
-# #     group_by(location, DateTime) |>
-# #     summarise(
-# #       active = any(!is.na(value)),
-# #       .groups = "drop"
-# #     )
-# # 
-# #   # 2. Compute runs of up/down
-# #   status_runs <- status |>
-# #     arrange(location, DateTime) |>
-# #     group_by(location) |>
-# #     mutate(run = cumsum(active != lag(active, default = first(active)))) |>
-# #     group_by(location, run, active) |>
-# #     summarise(
-# #       start     = first(DateTime),
-# #       end       = last(DateTime),
-# #       length_hr = as.numeric(difftime(end, start, units = "hours")) + 1,
-# #       .groups   = "drop"
-# #     ) |>
-# #     mutate(
-# #       status = case_when(
-# #         active == TRUE                             ~ "up",
-# #         active == FALSE & length_hr >= downtime_hours ~ "down",
-# #         TRUE                                       ~ "up"
-# #       )
-# #     )
-# # 
-# #   # 3. Gantt-style plot
-# #   ggplot(status_runs, aes(y = location)) +
-# #     geom_linerange(aes(xmin = start, xmax = end, color = status),
-# #                    size = 6, alpha = 0.8) +
-# #     scale_color_manual(values = c(up = "forestgreen", down = "firebrick")) +
-# #     scale_x_datetime(date_labels = date_labels, date_breaks = date_breaks) +
-# #     labs(
-# #       x     = "Time",
-# #       y     = "Sensor location",
-# #       color = "Status",
-# #       title = paste0(pollutant, " — uptimes/downtimes")
-# #     ) +
-# #     theme_minimal()
-# # }
-# # 
-# # 
-# # #plot for all SCC sensors
-# # plot_sensor_uptime(S, 'NO')
-# # plot_sensor_uptime(SCC_NO2, 'NO2')
-# # plot_sensor_uptime(SCC_PM25, 'PM25')
-# # plot_sensor_uptime(SCC_PM10, 'PM10')
-# # 
-# # 
-# # # # AQmesh uptime plots  ------------------------------------------------------------
-# # # AM_sensor_names <- list.files("Data/AMfixed", pattern = "\\.csv$", full.names = TRUE)
-# # # names(AM_sensor_names) <- basename(AM_sensor_names)
-# # #
-# # # #load in all AQM csvs into a single dataframe
-# # # AM_aq_raw <- map_dfr(AM_sensor_names, read_csv, .id = "file_id")
-# # #
-# # # AM_aq_raw |>
-# # #   filter(`amon.PM25:QC` != 0) |>
-# # #   group_by(`amon.PM25:QC`) |>
-# # #   count()
-# # #
-# # # AM_aq_raw |>
-# # #   filter(`amon.NO2:QC` != 0) |>
-# # #   group_by(`amon.NO2:QC`) |>
-# # #   count()
-# # #
-# # #
-# # # #tag based on pollutant measured
-# # # AM_aq_raw <- AM_aq_raw |>
-# # #   group_by(amon.sensor) |>
-# # #   mutate(
-# # #     measures_PM25 = any(!is.na(amon.PM25)),
-# # #     measures_NO2  = any(!is.na(amon.NO2)),
-# # #     pollutant_type = case_when(
-# # #       measures_PM25 & measures_NO2  ~ "both",
-# # #       measures_PM25 & !measures_NO2 ~ "PM25 only",
-# # #       !measures_PM25 & measures_NO2 ~ "NO2 only",
-# # #       TRUE                           ~ "none"
-# # #     )
-# # #   ) |>
-# # #   ungroup()
-# # #
-# # # # build the “status_runs” table (as before) but drop the old status‐color mapping
-# # # threshold <- 10
-# # # AM_aq_status <- AM_aq_raw |>
-# # #   rename(sensor = amon.sensor,
-# # #          time   = amon.universalTime) |>
-# # #   pivot_longer(
-# # #     cols      = c(amon.PM25, amon.NO2),
-# # #     names_to  = "pollutant",
-# # #     values_to = "value"
-# # #   ) |>
-# # #   mutate(
-# # #     value = ifelse(is.na(value) | value <= 0, NA_real_, value)
-# # #   ) |>
-# # #   group_by(sensor, time) |>
-# # #   summarise(
-# # #     active         = any(!is.na(value)),
-# # #     pollutant_type = first(pollutant_type),
-# # #     .groups        = "drop"
-# # #   ) |>
-# # #   arrange(sensor, time) |>
-# # #   group_by(sensor, pollutant_type) |>
-# # #   mutate(run = cumsum(active != lag(active, default = first(active)))) |>
-# # #   group_by(sensor, pollutant_type, run, active) |>
-# # #   summarise(
-# # #     start  = first(time),
-# # #     end    = last(time),
-# # #     length = n(),
-# # #     .groups = "drop"
-# # #   )
-# # #
-# # # # 2. single Gantt‐style plot, coloring each sensor’s bars by pollutant_type
-# # # ggplot(AM_aq_status, aes(y = sensor)) +
-# # #   geom_linerange(
-# # #     aes(xmin = start, xmax = end, color = pollutant_type),
-# # #     size = 6, alpha = 0.8
-# # #   ) +
-# # #   geom_vline(
-# # #     xintercept = as.POSIXct("2023-02-27 00:00:00", tz = "Europe/London"),
-# # #     linetype   = "dotted"
-# # #   ) +
-# # #   scale_color_manual(
-# # #     values = c(
-# # #       "PM25 only" = "steelblue",
-# # #       "NO2 only"  = "darkorange",
-# # #       "both"      = "purple"
-# # #     )
-# # #   ) +
-# # #   scale_x_datetime(
-# # #     date_labels = "%d/%m/%Y",
-# # #     date_breaks = "6 months"
-# # #   ) +
-# # #   labs(
-# # #     title = "AQmesh Sensor uptime/downtime by pollutant type",
-# # #     x     = "Time",
-# # #     y     = "Sensor",
-# # #     color = "Measures"
-# # #   ) +
-# # #   theme_minimal()
-# # #
-# # #
-# # #
-# # # # Envirowatch uptime plots ------------------------------------------------
-# # #
-# # # ENV_sensor_names <- list.files("Data/eWatch", pattern = "\\.csv$", full.names = TRUE)
-# # # names(ENV_sensor_names) <- basename(ENV_sensor_names)
-# # #
-# # # #load in all AQM csvs into a single dataframe
-# # # ENV_aq_raw <- map_dfr(ENV_sensor_names, read_csv, .id = "file_id") |>
-# # #   select(c(data.sensor, data.universalTime,data.NO2))
-# # #
-# # # ENV_status <- ENV_aq_raw |>
-# # #   rename(
-# # #     sensor = data.sensor,
-# # #     time   = data.universalTime,
-# # #     no2    = data.NO2
-# # #   ) |>
-# # #   arrange(sensor, time) |>
-# # #   group_by(sensor) |>
-# # #   mutate(
-# # #     active = !is.na(no2),
-# # #     run    = cumsum(active != lag(active, default = first(active)))
-# # #   ) |>
-# # #   group_by(sensor, run, active) |>
-# # #   summarise(
-# # #     start  = first(time),
-# # #     end    = last(time),
-# # #     length = n(),
-# # #     .groups = "drop"
-# # #   ) |>
-# # #   mutate(
-# # #     status = ifelse(!active & length > threshold, "down", "up")
-# # #   )
-# # #
-# # # # plot Gantt‐style uptime/downtime chart
-# # # ggplot(ENV_status, aes(y = sensor)) +
-# # #   geom_linerange(
-# # #     aes(xmin = start, xmax = end, color = status),
-# # #     size = 6, alpha = 0.8
-# # #   ) +
-# # #   geom_vline(
-# # #     xintercept = as.POSIXct("2023-02-27 00:00:00", tz = "Europe/London"),
-# # #     linetype   = "dotted"
-# # #   ) +
-# # #   scale_x_datetime(
-# # #     date_labels = "%d/%m/%Y",
-# # #     date_breaks = "3 months"
-# # #   ) +
-# # #   labs(
-# # #     title = "Ewatch Sensor uptime (NO only)",
-# # #     x     = "Time",
-# # #     y     = "Sensor",
-# # #     color = "Status"
-# # #   ) +
-# # #   theme_minimal() +
-# # #   theme(legend.position = 'none')
-# # #
-# # #
-# # #
-# # #
-# # #
-# # #

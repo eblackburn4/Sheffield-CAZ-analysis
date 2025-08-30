@@ -11,53 +11,6 @@ library(rdrobust)
 
 ## ---------------------------
 
-# helper to run one rdrobust fit and extract stats
-rdd_fit <- function(x, y, h) {
-  fit <- rdrobust(y = y, x = x, c = 0, h = h, kernel = "triangular", p = 1)
-  est <- fit$coef["Conventional","tau.us"] %||% fit$coef[1,"tau.us"]
-  se  <- fit$se["Conventional","tau.us"]   %||% fit$se[1,"tau.us"]
-  z   <- est / se
-  p   <- 2 * pnorm(-abs(z))
-  ci  <- est + c(-1,1) * qnorm(0.975) * se
-  tibble(h = h,
-         coef = est,
-         p = p,
-         ci_low = ci[1],
-         ci_high = ci[2])
-}
-
-#function to run bandwidth sensitivity checks for each AQ sensor
-
-rdd_bandwidth_sensitivity <- function(RDD_aq_list,
-                                      hs = c(7,14,21,28,35)) {
-  
-  list_ids <- names(RDD_aq_list)
-  results <- map2_dfr(RDD_aq_list, list_ids, function(obj, id) {
-    dat <- obj$normalised %>%
-      as_tibble() %>%
-      transmute(t = .data[["t"]], y = .data[["mean_value"]]) %>%
-      filter(is.finite(t), is.finite(y))
-    
-    # run across bandwidths
-    map_dfr(hs, ~ rdd_fit(dat$t, dat$y, .x)) %>%
-      mutate(sensor_pollutant = id, .before = 1)
-  })
-  
-  # wide format: one row per sensor_pollutant, columns per h
-  results_wide <- results %>%
-    mutate(h_lbl = paste0("h", h)) %>%
-    select(sensor_pollutant, h_lbl, coef, p, ci_low, ci_high) %>%
-    pivot_longer(cols = c(coef, p, ci_low, ci_high),
-                 names_to = "metric", values_to = "value") %>%
-    unite(col = "col", metric, h_lbl, sep = "_") %>%
-    pivot_wider(names_from = col, values_from = value) %>%
-    arrange(sensor_pollutant)
-  
-  results_wide
-}
-
-# Run the sensitivity analysis
-AQ_bw_sensitivity <- rdd_bandwidth_sensitivity(AQ_norm_list)
 
 get_rd_est <- function(y, x, h) {
   

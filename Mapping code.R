@@ -20,7 +20,7 @@ library(osmdata)
 # this code generates a map of the CAZ boundary and sensor locations in Sheffield
 #make base map
 
-sheffield <- c(-1.524367, 53.350425, -1.404986, 53.406676)
+sheffield <- c(-1.524367, 53.350425, -1.404986, 53.416676)
 basemap <- get_stadiamap(sheffield, zoom = 15, maptype="stamen_toner_lite") |> ggmap()
 
 #read in CAZ json
@@ -93,7 +93,8 @@ tf_sensor_m <- st_transform(tf_sensor_sf, 27700)
 caz_m    <- st_transform(caz_sf, 27700)
 
 #Build an exterior “ring” around the CAZ
-caz_buffer   <- st_buffer(caz_m, 1500)
+caz_buffer<- st_buffer(caz_m, 2000, nquadsegs = 30)
+
 caz_outer_ring <- st_difference(caz_buffer, caz_m)
 
 #Classify each aq sensor into one of three bins
@@ -214,12 +215,8 @@ basemap +
 # traffic sensor road matching --------------------------------------------
 #this section uses OSM data to match sensors to major roads around the CAZ
  
-# Inputs assumed:
-# - caz_m           : CAZ polygon in EPSG:27700
-# - caz_outer_ring  : st_difference(st_buffer(caz_m, 1500), caz_m)  # 0–1500 m outside
-# - sensors         : data.frame(sensorID, lon, lat, ...)
 
-# 1) Get OSM roads around the CAZ (bbox of the outer ring) and within the CAZ, keep relevant classes, project to 27700
+#Get OSM roads around the CAZ (bbox of the outer ring) and within the CAZ, keep relevant classes, project to metric coords
 
 bb <- st_bbox(st_transform(caz_outer_ring, 4326))
 od <- opq(bbox = bb) |>
@@ -245,17 +242,12 @@ tf_sensor_m <- tf_sensor_m |>
   mutate(side = case_when(in_caz ~ "inner", in_ring ~ "outer", TRUE ~ NA_character_)) |>
   filter(!is.na(side))
 
-# Helper: match sensors to roads (buffer membership first, then nearest within a threshold)
-match_to_roads <- function(pts, roads, buf_m = 15, nearest_max_m = 30) {
-  if (nrow(pts) == 0) {
-    return(pts |> st_drop_geometry() |>
-             mutate(road_id = NA, name = NA, ref = NA, highway = NA,
-                    match_method = NA_character_, match_dist_m = NA_real_))
-  }
+# match sensors to roads based on max 15m from centreline (if multiple, nearest road wins)
+match_to_roads <- function(pts, roads, buf_m = 15) {
+  
   roads <- st_make_valid(roads)
   roads_buf <- st_buffer(roads, buf_m)
   
-  # 1) Buffer membership join (may yield multiple candidates per sensor)
   cand <- st_join(
     pts |> mutate(.sid = row_number()),
     roads_buf[, c("osm_id","name","ref","highway")],
@@ -277,20 +269,6 @@ match_to_roads <- function(pts, roads, buf_m = 15, nearest_max_m = 30) {
     cand <- cand |> mutate(dist_m = NA_real_)
   }
   
-  # 2) Fallback: nearest road within threshold for any still-unmatched
-  i_na <- is.na(cand$osm_id)
-  if (any(i_na)) {
-    idx_nn <- st_nearest_feature(cand[i_na, ], roads)
-    d_nn   <- st_distance(cand[i_na, ], roads[idx_nn, ], by_element = TRUE)
-    ok     <- as.numeric(d_nn) <= nearest_max_m
-    
-    cand$osm_id[i_na][ok]  <- roads$osm_id[idx_nn[ok]]
-    cand$name[i_na][ok]    <- roads$name[idx_nn[ok]]
-    cand$ref[i_na][ok]     <- roads$ref[idx_nn[ok]]
-    cand$highway[i_na][ok] <- roads$highway[idx_nn[ok]]
-    cand$dist_m[i_na][ok]  <- as.numeric(d_nn[ok])
-  }
-  
   cand |>
     st_drop_geometry() |>
     transmute(
@@ -300,7 +278,6 @@ match_to_roads <- function(pts, roads, buf_m = 15, nearest_max_m = 30) {
       match_method = case_when(
         is.na(road_id)      ~ NA_character_,
         dist_m <= buf_m     ~ "buffer",
-        TRUE                ~ "nearest"
       ),
       match_dist_m = dist_m
     )
@@ -308,10 +285,10 @@ match_to_roads <- function(pts, roads, buf_m = 15, nearest_max_m = 30) {
 
 # Apply per side and combine
 matched_inner <- tf_sensor_m |> filter(side == "inner") |>
-  match_to_roads(roads_inner, buf_m = 15, nearest_max_m = 30)
+  match_to_roads(roads_inner, buf_m = 15)
 
 matched_outer <- tf_sensor_m |> filter(side == "outer") |>
-  match_to_roads(roads_outer, buf_m = 15, nearest_max_m = 30)
+  match_to_roads(roads_outer, buf_m = 15)
 
 sensor_to_road <- bind_rows(matched_inner, matched_outer)
 
@@ -328,7 +305,7 @@ ring_road <- c("Saint Mary's Road",
                "Hanover Way",
                "Hoyle Street")
             
-#wrangle data to get the categories right
+#wrangle data to get the categories right and filter for at least 3 sensors per road
 
 sensor_to_road_RDD <- sensor_to_road |>
   mutate(category = case_when(
@@ -345,13 +322,17 @@ sensor_to_road_RDD <- sensor_to_road |>
     TRUE ~ ref
   )) |>
   mutate(ref = case_when(
+    category == 'Inside CAZ' & is.na(ref) ~ 'CAZ interior road',
     category == 'Inside CAZ' & ref != 'A61 Ring Road' ~ 'CAZ interior road',
     TRUE ~ ref
   )) |>
   mutate(highway = ifelse(highway == 'trunk', 'primary', highway)) |>
-  filter(highway == 'primary' | highway == 'secondary') |>
+  mutate(highway = ifelse(ref == 'CAZ interior road', 'CAZ_road', highway)) |>
+  filter(highway == 'primary' | highway == 'secondary' | highway == 'CAZ_road') |>
   mutate(sensorID = str_replace_all(sensorID, "[^A-Za-z0-9]", "")) |>
-  filter(ref !=is.na(ref))
+  filter(ref !=is.na(ref)) |>
+  group_by(ref) |>
+  filter(n() >= 3) 
 
 #plot the roads on a map
 
@@ -367,14 +348,12 @@ roads_map <- roads_outer |>
   ))
 
 
-
-
 bbox_ll <- st_as_sfc(st_bbox(c(xmin = sheffield[1], ymin = sheffield[2],
                                xmax = sheffield[3], ymax = sheffield[4]), crs = 4326))
 roads_map <- st_crop(roads_map, bbox_ll)
 caz_ll       <- st_intersection(caz_ll, bbox_ll)
 
-# Plot over your ggmap basemap (basemap object already created)
+# Plot roads over the basemap 
 basemap +
   geom_sf(data = roads_map,
           aes(color = high_cat),
@@ -389,9 +368,11 @@ basemap +
     color   = "red",
     linewidth    = 1
   ) +
-  scale_color_manual(values = c("primary" = "darkblue", 
+  scale_color_manual(labels = c('Primary roads', 'Secondary roads'), 
+                     values = c("primary" = "darkblue", 
                                 "secondary" = "limegreen")) +
   theme_void() +
   theme(legend.position = "bottom",
-        legend.title = element_blank()) 
+        legend.title = element_blank(),
+        legend.text = element_text(size = 10, family = 'Roboto'))
                             

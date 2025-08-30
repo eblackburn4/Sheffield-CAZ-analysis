@@ -125,17 +125,34 @@ print(pwork)
 print(part_dep)
 }
 
-#generate normalised time series and diagnostic plots for each pollutant/sensor pair
+#generate normalised time series for each pollutant/sensor pair
 
 GH4_NO2<- weather_norm("SCC_GH4", "NO2") 
 GH3_NO2 <- weather_norm("SCC_GH3", "NO2")
 GH3_PM25 <- weather_norm("SCC_GH3", "PM25")
 GH6_NO2 <- weather_norm("SCC_GH6", "NO2")
 GH6_PM25 <- weather_norm("SCC_GH6", "PM25")
-DFR_NO2 <- weather_norm("DFR_1027A", "NO2")
-DFR_PM25 <- weather_norm("DFR_1027A", "PM25")
-DFR_PM25 <- weather_norm("DFR_1027A", "PM25")
+DFR1027_NO2 <- weather_norm("DFR_1027A", "NO2")
+DFR1027_PM25 <- weather_norm("DFR_1027A", "PM25")
+DFR1063_NO2 <- weather_norm("DFR_1063A", "NO2")
+DFR1063_PM25 <- weather_norm("DFR_1063A", "PM25")
 AMF245_NO2 <- weather_norm("AMF_2450229", "NO2")
+AMF245_PM25 <- weather_norm("AMF_2450229", "PM25")
+
+#put into a list for easier batch processing later on
+
+AQ_norm_list <- list(  GH4_NO2  = GH4_NO2,
+                       GH3_NO2  = GH3_NO2,
+                       GH3_PM25 = GH3_PM25,
+                       GH6_NO2  = GH6_NO2,
+                       GH6_PM25 = GH6_PM25,
+                       DFR1027_NO2  = DFR1027_NO2,
+                       DFR1027_PM25 = DFR1027_PM25,
+                       DFR1063_NO2  = DFR1063_NO2,
+                       DFR1063_PM25 = DFR1063_PM25,
+                       AMF245_PM25 = AMF245_PM25
+                       )
+
 
 #norm_plots(GH4_NO2)
 # norm_plots(GH4_PM25)
@@ -146,15 +163,7 @@ AMF245_NO2 <- weather_norm("AMF_2450229", "NO2")
 # norm_plots(DFR_NO2)
 # norm_plots(DFR_PM25)
 
-AQ_norm_list$GH6_NO2$normalised |>
-  ggplot(aes(x = day, y = mean_value)) +
-  geom_line() +
-  labs(
-    x = "Date",
-    y = "PM2.5",
-    title = 'GH4 PM2.5 Normalised Time Series'
-  ) +
-  theme_minimal()
+
 
 # Traffic normalisation ---------------------------------------------------
 #apply rmweather to averaged readings within sensor groups
@@ -186,22 +195,3 @@ traffic_norm_list <- refs |>
   set_names() |>                
   map(traffic_norm)   
 
-#facet ggplot of all normalised time series in traffic_norm_list
-
-tf_plot <- function(traffic_norm_list) {
-  traffic_norm_list |>
-    map_dfr(~.x$normalised, .id = "ref") |>
-    ggplot(aes(x = date, y = value_predict, color = ref)) +
-    geom_line() +
-    labs(
-      x = "Date",
-      y = "Cars per hour",
-      title = 'Normalised Traffic Time Series'
-    ) +
-    theme_minimal() +
-    facet_wrap(~ref, scales = 'free_y') +
-    theme(legend.position = "none")
-}
-
-#plot normalised traffic time series
-tf_plot(traffic_norm_list)

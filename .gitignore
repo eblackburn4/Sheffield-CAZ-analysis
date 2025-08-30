@@ -51,5 +51,6 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 
-#Notepad files
+#Notepad files, plots etc
 .rtf
+.svg
