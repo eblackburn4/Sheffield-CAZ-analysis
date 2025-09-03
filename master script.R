@@ -20,6 +20,9 @@ library(ggrepel)
 
 ## ---------------------------
 
+#set random seed to ensure reproducibility of weather normalisation/RDD models
+set.seed(9999)
+
 source("Mapping code.R")
 source("data exploration.R")
 source('weather normalisation.R')

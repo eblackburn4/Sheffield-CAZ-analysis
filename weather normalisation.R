@@ -12,6 +12,7 @@ library(ranger) #dependency for rmweather
 library(weathermetrics) #for calculating humidity from dewpoint
 library(patchwork)
 
+set.seed(9999) #for reproducibility of random forest model
 ## ---------------------------
 
 # load in ERA5 weather data -----------------------------------------------
@@ -153,16 +154,25 @@ AQ_norm_list <- list(  GH4_NO2  = GH4_NO2,
                        AMF245_PM25 = AMF245_PM25
                        )
 
+#aggregate normalised data to daily means for RDD analysis and set running variable
+CAZ_start <- as_date("2023-02-27")
 
-#norm_plots(GH4_NO2)
-# norm_plots(GH4_PM25)
-# norm_plots(GH3_NO2)
-# norm_plots(GH3_PM25)
-# norm_plots(GH6_NO2)
-# norm_plots(GH6_PM25)
-# norm_plots(DFR_NO2)
-# norm_plots(DFR_PM25)
+daily_avg <- function(sensor) {
+  sensor$normalised <- sensor$normalised |>
+    mutate(day = as_date(date)) |>
+    group_by(day) |>
+    summarise(mean_value = mean(value_predict),
+              median_value = median(value_predict), 
+              .groups = "drop") |>
+    complete(day = seq(min(day), max(day), by = "day")) |>
+    mutate(t = as.numeric(day - CAZ_start))
+  sensor
+} 
 
+#apply daily average to all sensors
+
+AQ_norm_list <- map(AQ_norm_list, daily_avg)
+list2env(AQ_norm_list, envir = .GlobalEnv)
 
 
 # Traffic normalisation ---------------------------------------------------
@@ -194,4 +204,22 @@ refs <- master_tf_join_hourly |> distinct(ref) |> pull(ref)
 traffic_norm_list <- refs |>
   set_names() |>                
   map(traffic_norm)   
+
+#aggregate data to be daily sum of cars rather than hourly, add running variable and impute
+daily_avg_traffic <- function(road) {
+  road$normalised_daily <- road$normalised |>
+    mutate(day = as_date(date)) |>
+    group_by(day) |>
+    summarise(cars_per_day = mean(value_predict, na.rm = TRUE),
+              .groups = "drop") |>
+    complete(day = seq(min(day), max(day), by = "day")) |>
+    mutate(
+      cars_per_day   = na.approx(cars_per_day, x = day, na.rm = FALSE),
+      t = as.numeric(day - CAZ_start)
+    )       
+  road
+}
+
+#apply daily average to all roads
+traffic_norm_list <- map(traffic_norm_list, daily_avg_traffic)
 

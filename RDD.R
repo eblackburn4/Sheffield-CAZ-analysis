@@ -44,58 +44,7 @@ daily_avg <- function(sensor) {
 AQ_norm_list <- map(AQ_norm_list, daily_avg)
 list2env(AQ_norm_list, envir = .GlobalEnv)
 
-
-#calculate optimal bandwidth, and remove any sensors that have more than 10% of NAs within bandwidth
-screen_by_bw_na <- function(AQ_norm_list, max_na_pct = 10) {
-  
-  res <- imap_dfr(AQ_norm_list, function(sensor, nm) {
-    t <- sensor$normalised$t
-    y <- sensor$normalised$mean_value
-    
-    # bandwidth estimated on complete cases only
-    cc <- which(!is.na(t) & !is.na(y))
-    bw <- tryCatch(
-      if (length(cc) >= 20) {
-        rdrobust::rdbwselect(y = y[cc], x = t[cc])$bws[1, 1]
-      } else NA_real_,
-      error = function(e) NA_real_
-    )
-    
-    # compute %NA within ±bw using original series
-    if (is.na(bw)) {
-      tibble(
-        sensor = nm,
-        bandwidth = NA_real_,
-        total_in_bw = NA_integer_,
-        na_in_bw = NA_integer_,
-        pct_na_in_bw = NA_real_
-      )
-    } else {
-      df <- tibble(t = t, y = y) |> filter(!is.na(t), abs(t) <= bw)
-      total_in_bw <- nrow(df)
-      na_in_bw    <- sum(is.na(df$y))
-      pct_na_in_bw <- if (total_in_bw > 0) 100 * na_in_bw / total_in_bw else NA_real_
-      
-      tibble(
-        sensor = nm,
-        bandwidth = bw,
-        total_in_bw = total_in_bw,
-        na_in_bw = na_in_bw,
-        pct_na_in_bw = pct_na_in_bw
-      )
-    }
-  })
-  
-  keep_ids <- res |>
-    filter(!is.na(bandwidth), !is.na(pct_na_in_bw), total_in_bw > 0, pct_na_in_bw <= max_na_pct) |>
-    pull(sensor)
-  
-  clean_list <- AQ_norm_list[keep_ids]
-  
-  list(clean_list = clean_list, summary = res)
-}
-
-AQ_norm_list_clean <- screen_by_bw_na(AQ_norm_list, max_na_pct = 5)
+#calculate optimal bandwidth across all sensors using rdrobust built in functions
 
 aq_bw_all <- map(AQ_norm_list, function(sensor) {
   x <- rdbwselect(y = sensor$normalised$mean_value, x = sensor$normalised$t)
@@ -107,22 +56,6 @@ aq_bw_all <- map(AQ_norm_list, function(sensor) {
     pollutant = str_extract(sensor_pollutant, "(NO2|PM2?5)")
   )
 
-
-# #function to calculate MDE for all sensors
-# RDD_mde <- map(AQ_norm_list, function(sensor) {
-#   x <- rdmde(data = cbind(sensor$normalised$mean_value, sensor$normalised$t),
-#               h = 26,
-#               cutoff = 0,
-#               alpha = 0.05,
-#               beta = 0.8
-#   )
-#   x$mde
-# })
-# 
-# test <- rdmde(data = cbind(GH3_PM25$normalised$median_value, GH3_PM25$normalised$t), 
-#               p = 1, alpha = 0.05)
-# 
-# 
 
 #function to run core RDD analysis on AQ sensors and plot graps
 
@@ -296,7 +229,7 @@ AQ_RDD_summary <- extract_coefs(AQ_RDD_list) |>
 
 #forest plot of the estimators
 
-ggplot(AQ_RDD_summary, aes(y = sensor, x = estimator, colour = type, shape = sig_95)) +
+ggplot(AQ_RDD_summary, aes(y = sensor, x = coef, colour = type, shape = sig_95)) +
   geom_point(size = 3) +
   geom_errorbar(aes(xmin = ci_lower, xmax = ci_upper), 
                 width = 0.2, size = 0.8) +  # width controls cap length
@@ -418,24 +351,6 @@ forest_plot_donut_aq(donut_sensitivity_aq, "PM25")
 
 
 # RDD estimators for traffic data -----------------------------------------
-
-#aggregate data to be daily sum of cars rather than hourly, add running variable and impute
-daily_avg_traffic <- function(road) {
-  road$normalised_daily <- road$normalised |>
-    mutate(day = as_date(date)) |>
-    group_by(day) |>
-    summarise(cars_per_day = mean(value_predict, na.rm = TRUE),
-              .groups = "drop") |>
-    complete(day = seq(min(day), max(day), by = "day")) |>
-    mutate(
-      cars_per_day   = na.approx(cars_per_day, x = day, na.rm = FALSE),
-      t = as.numeric(day - CAZ_start)
-    )       
-  road
-}
-
-#apply daily average to all roads
-traffic_norm_list <- map(traffic_norm_list, daily_avg_traffic)
 
 #calculate optimal bandwidth across all sensors and take the median
 tf_bw_all <- map(traffic_norm_list, function(road) {
@@ -668,8 +583,47 @@ forest_plot_donut_tf <- function(df) {
           legend.position = "bottom")
 }
 
-forest_plot_donut_tf(traffic_donut_sensitivity_df)
+forest_plot_donut_tf(tf_donut_sensitivity)
 
+#map of roads showing increases/decreases
+#join roads geometery to coefficients
+roads_map_RDD_coefs <- roads_map_RDD |>
+  select(name, ref, highway, geometry) |>
+  mutate(category = case_when(
+    name %in% ring_road ~ "Inside CAZ",
+    TRUE                ~ 'Spillover'
+  )) |>
+  mutate(ref = case_when(
+    ref == "A61" & category == "Inside CAZ" ~ "A61 Ring Road",
+    ref == "A61" & category == "Spillover" ~ "A61",
+    TRUE ~ ref
+  )) |>
+  left_join(traffic_RDD_df, by = c("ref" = "sensor")) |>
+  mutate(coef = ifelse(p_value < 0.05, coef, NA))
+
+#plot only significant coefs on the map
+
+basemap +
+  geom_sf(data = roads_map_RDD_coefs,
+          aes(color = coef),
+          inherit.aes = FALSE, linewidth = 1.1) +
+  coord_sf(xlim = c(sheffield[1], sheffield[3]),
+           ylim = c(sheffield[2], sheffield[4]),
+           expand = FALSE, datum = NA) +
+  geom_polygon(
+    data    = df_caz,
+    aes(x    = lon, y = lat, group = group),
+    fill  = alpha("grey90", 0.5),
+    color   = "#90400E",
+    linewidth    = 1.1
+  ) +
+  theme_void() +
+  scale_color_scico(palette = 'roma', direction = -1, na.value = 'grey80') +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8, family = 'Roboto condensed')) 
+
+#now do the same for the 4/5/6 week donuts
 
 
 # tables of aggregated coefficients: AQ ---------------------------------------

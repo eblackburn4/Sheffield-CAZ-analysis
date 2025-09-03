@@ -106,11 +106,12 @@ master_aq_raw <- bind_rows(
   AM_aq_raw   |> mutate(family = "AQMesh")
 )
 
-
 #remove individual datasets
 rm(SCC_aq_raw, EW_aq_raw, defra_aq_raw, AM_aq_raw)
 
+
 #join to sensor metadata and filter for only CAZ-adjacent sensors with at least 6 months of data
+#also filter out 1-5am timestamps for SCC_GH4_NO2
 
 start <- as.POSIXct("2022-08-27 00:00:00", tz = "UTC")
 end   <- as.POSIXct("2023-08-26 00:00:00", tz = "UTC")
@@ -125,20 +126,23 @@ master_aq_join <- aq_sensor_df_ll |>
   filter(max(DateTime) >= '2023-08-26 00:00:00' & 
          min(DateTime) <= '2022-09-27 00:00:00') |>
   filter(DateTime >= start, DateTime <= end) |>
-  filter(mean(is.na(PM25)) | mean(is.na(NO2)) <= 0.10) 
+  filter(mean(is.na(PM25)) | mean(is.na(NO2)) <= 0.10) |>
+  filter(!(SensorID == "SCC_GH6" & !is.na(NO2) &
+           hour(DateTime) >= 1 & hour(DateTime) < 5))
 
 rm(master_aq_raw)
 
 #summarise percentage of NA for each pollutants and sensor
-master_aq_join |>
+na_summary <- master_aq_join |>
   ungroup() |>
   group_by(SensorID) |>
   select(SensorID, PM25, NO2) |>
   summarise(
     PM25_NA = mean(is.na(PM25)*100),
-    NO2_NA = mean(is.na(NO2)*100)
+    NO2_NA = mean(is.na(NO2)*100),
+    COMP_NO2 = 100 - NO2_NA,
+    COMP_PM25 = 100 - PM25_NA
   )
-
 
 
 # read in and QA traffic flow data -----------------------------------------------
@@ -172,15 +176,6 @@ master_tf_join <- tf_sensor_df_ll |>
 rm(traffic_raw)
 
 #check presence of NAs
-master_tf_join |>
-  ungroup() |>
-  distinct(sensorID) |>
-  count()
-
-master_aq_join |>
-  ungroup() |>
-  distinct(SensorID) |>
-  count()
 
 #aggregate the traffic data to be per hour by grouping the timestamps into hourly bins
 #so it can be weather-normalised
@@ -195,8 +190,18 @@ master_tf_join_hourly <- master_tf_join |>
   select(-c('match_method', 'match_dist_m', 'category.y', 'road_id')) |>
   rename(date = hr)
 
-
 rm(master_tf_join)
+
+#check for NAs at the road level (min two reading per hour to not be NA)
+master_tf_join |>
+  inner_join(sensor_to_road_RDD, by = "sensorID") |>
+  ungroup() |>
+  group_by(ref) |>
+  complete(DateTime = seq(min(DateTime), max(DateTime), by = "30 min")) |>
+  summarise(
+    Is_NA = mean(is.na(flow)*100),
+    complete = 100 - Is_NA
+  )
 
   
 # recreate maps with only included sensors --------------------------------
@@ -303,7 +308,6 @@ basemap +
   scale_color_manual(labels = c('Primary roads', 'Secondary roads'), 
                      values = c("primary" = "darkblue", 
                                 "secondary" = "limegreen")) +
-  geom_sf_label(data = roads_map_labels, aes(label = ref), inherit.aes = FALSE, size = 3) +
   theme_void() +
   theme(legend.position = "bottom",
         legend.title = element_blank(),

@@ -86,8 +86,6 @@ plot_heatmap <- function(df_pollutant, title_lab = "") {
     theme(panel.grid = element_blank(), axis.text.y = element_text(size = 9))
 }
 
-# --- main ------------------------------------------------------------------
-
 # split and plot
 
 plot_heatmap((AQ_bw_test_summary |> filter(pollutant == 'NO2')), "RD estimates by h — NO2")
@@ -97,5 +95,40 @@ p_pm25 <- plot_heatmap(df_PM25, lines_PM25, "RD estimates by h — PM₂.₅")
 
 p_no2
 p_pm25
+
+
+#calculate MDE for each RDD model
+
+calculate_mde <- function(sensor_list, power = 0.8, alpha = 0.05) {
+  map_dfr(names(sensor_list), function(name) {
+    sensor <- sensor_list[[name]]
+    df     <- sensor$normalised
+    h      <- sensor$RDD$est$bws[1, 1]
+    data   <- cbind(df$mean_value, df$t)
+    samph  <- c(h, h)
+    
+    power_diff <- function(tau) {
+      rdpower(data = data, tau = tau, samph = samph, alpha = alpha)$power.rbc - power
+    }
+    
+    upper <- sd(df$mean_value, na.rm = TRUE)
+    while (power_diff(upper) < 0) {
+      upper <- upper * 2
+    }
+    
+    tau_mde  <- uniroot(power_diff, lower = 0, upper = upper)$root
+    pre_mean <- mean(df$mean_value[df$t < 0], na.rm = TRUE)
+    
+    tibble(
+      id        = name,
+      pollutant = str_extract(name, "NO2|PM25"),
+      sensor    = str_extract(name, "GH4|GH3|GH6|DFR1027|DFR1063|AMF"),
+      mde       = tau_mde,
+      mde_pct   = 100 * tau_mde / pre_mean
+    )
+  })
+}
+
+AQ_MDE_table <- calculate_mde(AQ_RDD_list)
 
 

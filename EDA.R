@@ -131,8 +131,27 @@ plot_caz_traffic_boxplot(traffic_norm_list)
 
 
 #normalised time series
+
+#nice labels for the charts
+var_labels_NO2 <- c(
+  DFR1027 = "DFR_1027A",
+  DFR1063 = "DFR_1063A",
+  GH3 = "SCC_GH3",
+  GH4 = "SCC_GH4",
+  GH6 = "SCC_GH6"
+)
+
+var_labels_PM25 <- c(
+  AMF245 = "AMF_2450229",
+  DFR1027 = "DFR_1027A",
+  DFR1063 = "DFR_1063A",
+  GH3 = "SCC_GH3",
+  GH6 = "SCC_GH6"
+)
+
+
 #facet plot of normalised air quality time series from AQ_norm_list
-facet_plot_by_pollutant <- function(AQ_norm_list, pollutant){
+facet_plot_by_pollutant <- function(AQ_norm_list, pollutant, pol_label){
   
   pol <- toupper(pollutant)
   nm  <- names(AQ_norm_list)
@@ -140,7 +159,6 @@ facet_plot_by_pollutant <- function(AQ_norm_list, pollutant){
   # keep only elements whose name ends with "_<pollutant>"
   keep_idx <- str_detect(toupper(nm), regex(paste0("(^|_)", pol, "$"), ignore_case = TRUE))
   lst <- AQ_norm_list[keep_idx]
-  if (length(lst) == 0) stop("No matches for pollutant: ", pollutant)
   
   df <- imap_dfr(lst, ~ tibble(
     sensor = str_remove(.y, "_[^_]+$"),     # drop pollutant suffix
@@ -151,16 +169,18 @@ facet_plot_by_pollutant <- function(AQ_norm_list, pollutant){
   
   ggplot(df, aes(t, value, group = sensor)) +
     geom_line() +
-    facet_wrap(~ sensor, scales = "free_y") +
+    facet_wrap(~ sensor, scales = "free_y", ncol = 5,
+               labeller = as_labeller(pol_label)) +
     scale_y_continuous(limits = c(0, NA),
                        expand = expansion(mult = c(0, .05))) +
-    labs(x = 'days before/after CAZ',
+    geom_vline(xintercept = 0, linetype = 'dashed', color = 'red') +
+    labs(x = 'Days before/after CAZ introduction',
          y = 'Normalised pollutant concentration (ug/m3)') +
-    theme_ipsum_rc(axis_title_size = 11, axis_text_size = 8)
+    theme_ipsum_rc(axis_title_size = 9, axis_text_size = 8)
 }
 
-facet_plot_by_pollutant(AQ_norm_list, "NO2")
-facet_plot_by_pollutant(AQ_norm_list, "PM25")
+facet_plot_by_pollutant(AQ_norm_list, "NO2", var_labels_NO2)
+facet_plot_by_pollutant(AQ_norm_list, "PM25", var_labels_PM25)
 
 
 #facet plot of normalised traffic time series
@@ -178,9 +198,10 @@ facet_plot_traffic <- function(traffic_norm_list){
     facet_wrap(~ road, scales = "free_y") +
     scale_y_continuous(limits = c(0, NA),
                        expand = expansion(mult = c(0, .05))) +
-    labs(x = 'days before/after CAZ',
+    geom_vline(xintercept = 0, linetype = 'dashed', color = 'red') +
+    labs(x = 'Days before/after CAZ introduction',
          y = 'Normalised daily mean cars/hour)') +
-    theme_ipsum_rc(axis_title_size = 11, axis_text_size = 8)
+    theme_ipsum_rc(axis_title_size = 12, axis_text_size = 8)
 }
 
 facet_plot_traffic(traffic_norm_list)
@@ -188,7 +209,30 @@ facet_plot_traffic(traffic_norm_list)
 
 # # combined weather diagnostics: AQ  --------
 
-rmw_aggregated_NO2 <- master_aq_ERA5 |> 
+#define nice labels for graph
+
+var_labels <- c(
+  date_unix       = "Trend (Unix time)",
+  day_julian      = "Day of year",
+  weekday         = "Day of week",
+  hour            = "Hour of day",
+  total_rain      = "Rainfall (m)",
+  surface_pressure= "Surface pressure (hPa)",
+  temp_2m         = "Temperature (C)",
+  solar_rads      = "Solar radiation (J/m2)",
+  wd_spd          = "Wind speed (m/s)",
+  wd_dir          = "Wind direction (degrees)",
+  rel_hum         = "Relative humidity (%)"
+)
+
+var_labels_tf <- c(
+  date_unix       = "Trend (Unix time)",
+  day_julian      = "Day of year",
+  weekday         = "Day of week",
+  hour            = "Hour of day")
+
+
+rmw_aggregated_NO2 <- master_aq_ERA5 |>
   rmw_prepare_data(value = 'NO2', na.rm = TRUE) |> 
   rmw_do_all(
     variables = c(
@@ -214,21 +258,29 @@ rmw_aggregated_NO2 <- master_aq_ERA5 |>
 rmw_aggregated_NO2$model |>
   rmw_model_importance() |> 
   rmw_plot_importance() +
-  labs(
-    title = paste('Variable Importance for NO2')
-  )
+  theme_ipsum_rc(axis_title_size = 12) +
+  scale_y_discrete(labels = var_labels) 
 
 #partial dependencies plot (NO2)
-rmw_partial_dependencies(
+NO2_partial <- rmw_partial_dependencies(
   model = rmw_aggregated_NO2$model,
   df = rmw_aggregated_NO2$observations,
   variable = NA
 ) |> 
   rmw_plot_partial_dependencies() 
 
+NO2_partial$facet$params$labeller <- ggplot2::as_labeller(var_labels)
+
+NO2_partial + 
+  labs(x = 'Variable', y = 'Partial dependency') + 
+  theme_ipsum_rc(axis_title_size = 12, axis_text_size = 8)
+  
+
+
 #same for PM2.5
 
 rmw_aggregated_PM25 <- master_aq_ERA5 |> 
+  filter(SensorID != 'AMF_2450229') |>
   rmw_prepare_data(value = 'PM25', na.rm = TRUE) |> 
   rmw_do_all(
     variables = c(
@@ -254,20 +306,77 @@ rmw_aggregated_PM25 <- master_aq_ERA5 |>
 rmw_aggregated_PM25$model |>
   rmw_model_importance() |> 
   rmw_plot_importance() +
-  labs(
-    title = paste('Variable Importance for PM25')
-  )
+  theme_ipsum_rc(axis_title_size = 12) +
+  scale_y_discrete(labels = var_labels) 
+  
 
 #partial dependencies plot (PM25)
-rmw_partial_dependencies(
+PM25_partial <- rmw_partial_dependencies(
   model = rmw_aggregated_PM25$model,
   df = rmw_aggregated_PM25$observations,
   variable = NA
 ) |> 
   rmw_plot_partial_dependencies() 
 
+PM25_partial$facet$params$labeller <- ggplot2::as_labeller(var_labels)
+
+PM25_partial + 
+  labs(x = 'Variable', y = 'Partial dependency') + 
+  theme_ipsum_rc(axis_title_size = 12, axis_text_size = 8)
+
+
+
+
+#facet plot of predicted vs actuals
+pred_df_aq <- imap_dfr(AQ_norm_list, function(sensor_norm, nm) {
+  out <- rmw_predict_the_test_set(
+    model = sensor_norm$model,
+    df    = sensor_norm$observations
+  )
+  out$sensor <- nm
+  out
+}) |>
+  mutate(
+    pollutant = case_when( 
+      grepl("PM25", sensor, ignore.case = TRUE) ~ "PM2.5",
+      grepl("NO2",  sensor, ignore.case = TRUE) ~ "NO2",
+      TRUE ~ "Other"
+    ))
+  
+#NO2 plot
+pred_df_aq |>
+  filter(pollutant == 'NO2') |>
+  ggplot(aes(x = value, y = value_predict)) +
+  geom_hex(fill = 'darkblue') +
+  geom_abline(slope = 1, intercept = 0) +
+  facet_wrap(~ SensorID, scales = 'free', ncol = 5) +
+  labs(
+    x = "Actuals",
+    y = "Predicted") +
+  theme_ipsum_rc(axis_title_size = 10, axis_text_size = 8) +
+  theme(legend.position = "none",
+        strip.text = element_text(size = 10))
+
+pred_df_aq |>
+  filter(pollutant == 'PM2.5') |>
+  filter(value < 350) |>
+  ggplot(aes(x = value, y = value_predict)) +
+  geom_hex(fill = 'darkred') +
+  geom_abline(slope = 1, intercept = 0) +
+  facet_wrap(~ SensorID, scales = 'free', ncol = 5) +
+  labs(
+    x = "Actuals",
+    y = "Predicted") +
+  theme_ipsum_rc(axis_title_size = 10, axis_text_size = 8) +
+  theme(legend.position = "none",
+        strip.text = element_text(size = 10))
+
 # # combined weather diagnostics: traffic  --------
+#use a sample to avoid crashing the model
+
 rmw_aggregated_traffic <- master_tf_join_hourly |> 
+  group_by(ref) |>
+  slice_sample(prop = 0.2) |>
   rmw_prepare_data(value = 'cars_per_hour', na.rm = TRUE) |> 
   rmw_do_all(
     variables = c(
@@ -285,15 +394,49 @@ rmw_aggregated_traffic <- master_tf_join_hourly |>
 rmw_aggregated_traffic$model |>
   rmw_model_importance() |> 
   rmw_plot_importance() +
-  labs(
-    title = paste('Variable Importance for Traffic')
-  )
+  theme_ipsum_rc(axis_title_size = 12) +
+  scale_y_discrete(labels = var_labels) 
+  
 
-#partial dependencies plot (traffic)
-rmw_partial_dependencies(
+#partial dependencies plot (traffic) 
+tf_partial <- rmw_partial_dependencies(
   model = rmw_aggregated_traffic$model,
   df = rmw_aggregated_traffic$observations,
   variable = NA
 ) |> 
   rmw_plot_partial_dependencies()
+
+tf_partial$facet$params$labeller <- ggplot2::as_labeller(var_labels_tf)
+
+tf_partial + 
+  labs(x = 'Variable', y = 'Partial dependency') + 
+  theme_ipsum_rc(axis_title_size = 12, axis_text_size = 8)
+
+
+#predicted vs actuals: traffic 
+
+pred_df_tf <- imap_dfr(traffic_norm_list, function(sensor_norm, nm) {
+  out <- rmw_predict_the_test_set(
+    model = sensor_norm$model,
+    df    = sensor_norm$observations
+  )
+  out$sensor <- nm
+  out
+}) 
+
+pred_df_tf |>
+  ggplot(aes(x = value, y = value_predict)) +
+  geom_hex(fill = 'darkgreen') +
+  geom_abline(slope = 1, intercept = 0) +
+  facet_wrap(~sensor, scales = 'free', ncol = 5) +
+  labs(
+    x = "Actuals",
+    y = "Predicted") +
+  theme_ipsum_rc(axis_title_size = 10, axis_text_size = 8) +
+  theme(legend.position = "none",
+        strip.text = element_text(size = 10))
+
+
+
+  
 
