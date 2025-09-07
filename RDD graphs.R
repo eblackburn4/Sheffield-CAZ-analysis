@@ -1,6 +1,6 @@
 
 ## ---------------------------
-## Purpose of script: erample RDD plot for thesis
+## Purpose of script: exampel R
 ## Author: Ned Blackburn
 ## Date Created: 2025-08-23
 
@@ -20,7 +20,6 @@ w <- n/6                         # fit within ± n/4
 pre  <- t[t < 0]
 post <- t[t >= 0]
 
-# denser, noisier, more distinct trends and level shift
 y_pre  <- 60 + 0.018*pre  + rnorm(length(pre),  sd = 6)
 y_post <- 10 - 0.035*post + rnorm(length(post), sd = 6)
 

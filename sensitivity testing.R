@@ -11,10 +11,11 @@ library(rdrobust)
 
 ## ---------------------------
 
-
+#Bandwidth test: air quality
+#function to run RDD and extract estimates
 get_rd_est <- function(y, x, h) {
   
-  fit <- rdrobust(y = y, x = x, h = h, kernel = "triangular")
+  fit <- rdrobust(y = y, x = x, h = h, kernel = "uniform")
   
   # safer extraction by names
   est   <- unname(fit$coef["Robust", 1])
@@ -32,7 +33,8 @@ get_rd_est <- function(y, x, h) {
   )
 }
 
-run_bw_test <- function(AQ_norm_list, h_grid = c(7, 14, 21, 28, 35)) {
+#run bw_tests for various values of h
+run_bw_test_aq <- function(AQ_norm_list, h_grid = c(7, 14, 21, 28, 35)) {
   map_dfr(names(AQ_norm_list), function(nm) {
     s <- AQ_norm_list[[nm]]
     y <- s$normalised$mean_value
@@ -47,17 +49,40 @@ run_bw_test <- function(AQ_norm_list, h_grid = c(7, 14, 21, 28, 35)) {
   })
 }
 
-
-# Run the grid analysis
-AQ_bw_test_summary <- run_bw_test(AQ_norm_list) |>
+AQ_bw_test_summary <- run_bw_test_aq(AQ_norm_list) |>
   mutate(
-    sensor    = str_replace(sensor_pollutant, "_(NO2|PM2?5)$", ""),
-    pollutant = str_extract(sensor_pollutant, "(NO2|PM2?5)")
-  )
+    sensor    = str_extract(sensor_pollutant, "(GH4|GH3|GH6|DFR1027|DFR1063|AMF)"),
+    pollutant = str_extract(sensor_pollutant, "(NO2|PM25)")
+  ) |>
+  mutate(sensor = if_else(sensor == 'AMF', 'AMF245', sensor)) |>
+  left_join(
+    aq_EDA_stats |> select(sensor, pollutant, pre_mean),
+    by = c("sensor", "pollutant")
+  ) |>
+  mutate(pct_change = 100 * estimate / pre_mean)
   
+#bandwidth test: traffic
+run_bw_test_tf <- function(traffic_norm_list, h_grid = c(7, 14, 21, 28, 35)) {
+  map_dfr(names(traffic_norm_list), function(nm) {
+    s <- traffic_norm_list[[nm]]
+    y <- s$normalised_daily$cars_per_day
+    x <- s$normalised_daily$t
+    
+    map_dfr(h_grid, function(h) {
+      get_rd_est(y, x, h) |>
+        mutate(road = nm, h = h, .before = 1) |>
+        mutate(significant = ifelse(pvalue < 0.05, 1, 0))
+    })
+  })
+}
+
+#generate summary tablea and join to EDA table for pre-CAZ percentages
+TF_bw_test_summary <- run_bw_test_tf(traffic_norm_list) |>
+  rename(sensor = road) |>
+  left_join(tf_EDA_stats |> select(sensor, pre_mean), by = "sensor") |>
+  mutate(pct_change = 100 * estimate / pre_mean) 
 
 #plot heatmaps summarising the results (per pollutant)
-
 
 plot_heatmap <- function(df_pollutant, title_lab = "") {
   # order sensors
@@ -73,28 +98,48 @@ plot_heatmap <- function(df_pollutant, title_lab = "") {
       h      = factor(h, levels = sort(unique(h)))
     )
   
-  ggplot(dfp, aes(x = h, y = sensor, fill = estimate)) +
+  ggplot(dfp, aes(x = h, y = sensor, fill = pct_change)) +
     geom_tile() +
     geom_text(
       data = dfp %>% filter(significant == 1),
       aes(label = "*"),
-      size = 8
+      size = 12,
+      color = 'grey80',
+      vjust = 0.8
     ) +
-    scale_fill_gradient2(midpoint = 0, na.value = "grey85") +
-    labs(title = title_lab, x = "Bandwidth h (days)", y = "Sensor", fill = "RD coef") +
-    theme_ipsum_rc() +
-    theme(panel.grid = element_blank(), axis.text.y = element_text(size = 9))
+    scale_fill_scico(palette = 'vik', midpoint = 0, direction = -1) +
+    labs(title = title_lab, x = "Bandwidth (days)", y = "Sensor", fill = "") +
+    theme_ipsum_rc(axis_title_size = 10, axis_text_size = 9) +
+    theme(panel.grid = element_blank(), legend.position = "right")
 }
 
-# split and plot
+# split and plot with y axis labels to match sensor names
 
-plot_heatmap((AQ_bw_test_summary |> filter(pollutant == 'NO2')), "RD estimates by h — NO2")
-plot_heatmap((AQ_bw_test_summary |> filter(pollutant == 'PM25')), "RD estimates by h — PM25")
+plot_heatmap(AQ_bw_test_summary |> filter(pollutant == 'NO2')) +
+   scale_y_discrete(limits = c('GH3', 'DFR1063','GH6','DFR1027','GH4'),
+                    labels = c(
+                    "GH3"    = "SCC_GH3",
+                    "GH6"    = "SCC_GH6",
+                    "DFR1027"= "DFR_1027A",
+                    "DFR1063"= "DFR_1063A",
+                    "GH4"    = "SCC_GH4"))
+       
+  
+plot_heatmap(AQ_bw_test_summary |> filter(pollutant == 'PM25')) +
+  scale_y_discrete(limits = c('GH3', 'DFR1063','GH6','DFR1027','AMF245'),
+                   labels = c(
+                     "GH3"    = "SCC_GH3",
+                     "GH6"    = "SCC_GH6",
+                     "DFR1027"= "DFR_1027A",
+                     "DFR1063"= "DFR_1063A",
+                     "AMF245"    = "AMF_2450229"))
 
-p_pm25 <- plot_heatmap(df_PM25, lines_PM25, "RD estimates by h — PM₂.₅")
+#heatmap for traffic
+plot_heatmap(TF_bw_test_summary) +
+  scale_y_discrete(limits = rev(sensor_order_TF),
+                   labels = rev(sensor_order_TF)) +
+  labs(y = 'Road')
 
-p_no2
-p_pm25
 
 
 #calculate MDE for each RDD model
@@ -124,11 +169,14 @@ calculate_mde <- function(sensor_list, power = 0.8, alpha = 0.05) {
       pollutant = str_extract(name, "NO2|PM25"),
       sensor    = str_extract(name, "GH4|GH3|GH6|DFR1027|DFR1063|AMF"),
       mde       = tau_mde,
-      mde_pct   = 100 * tau_mde / pre_mean
+      mde_pct   = 100 * tau_mde / pre_mean,
+      bw = samph[1]
     )
   })
 }
 
-AQ_MDE_table <- calculate_mde(AQ_RDD_list)
+AQ_MDE_table <- calculate_mde(AQ_RDD_list) |>
+  mutate(sensor = factor(sensor, levels = c("GH4", "DFR1027", "GH6", "DFR1063", 'GH3', "AMF"))) |>
+  arrange(pollutant, sensor)
 
 

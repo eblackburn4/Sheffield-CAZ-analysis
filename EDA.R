@@ -10,6 +10,22 @@ library(hrbrthemes)
 
 
 
+# Example plots of norm vs non norm timeseries -----------------------------
+
+GH4_NO2$normalised |>
+  ggplot(aes(x = date, y = value_predict)) +
+  geom_line() +
+  theme_ipsum_rc(grid = 'XY',axis_title_size = 10, axis_text_size = 10) +
+  labs(x = 'Date', y = 'Hourly normalised pollutant concentration (ug/m3)')
+
+GH4_NO2$observations |>
+  ggplot(aes(x = date, y = value)) +
+  geom_line() +
+  theme_ipsum_rc(grid = 'XY',axis_title_size = 10, axis_text_size = 10) +
+  labs(x = 'Date', y = 'Hourly pollutant concentration (ug/m3)')
+
+
+
 # Summary statistics ------------------------------------------------------
 
 aq_EDA_stats <- AQ_norm_list |>
@@ -36,7 +52,7 @@ aq_EDA_stats <- AQ_norm_list |>
   }) |>
   arrange(sensor, pollutant)
 
-traffic_EDA <- traffic_norm_list |>
+tf_EDA_stats <- traffic_norm_list |>
   imap_dfr(~{
     df <- .x$normalised_daily |> select(day, value = cars_per_day)
     
@@ -45,7 +61,7 @@ traffic_EDA <- traffic_norm_list |>
     
     tibble(
       sensor        = str_remove(.y, "_[^_]+$"),
-      pollutant     = coalesce(str_extract(.y, "[^_]+$"), "TRAFFIC"),
+      road     = coalesce(str_extract(.y, "[^_]+$"), "TRAFFIC"),
       pre_mean      = mean(pre$value,  na.rm = TRUE),
       pre_sd        = sd(pre$value,    na.rm = TRUE),
       post_mean     = mean(post$value, na.rm = TRUE),
@@ -58,18 +74,42 @@ traffic_EDA <- traffic_norm_list |>
                                   NA)
       )
   }) |>
-  arrange(sensor, pollutant)
+  arrange(sensor, road)
 
 
 
 # pre/post boxplots -------------------------------------------------------
 
+#nice labels for the charts
+var_labels_NO2 <- c(
+  DFR1027 = "DFR_1027A",
+  DFR1063 = "DFR_1063A",
+  GH3 = "SCC_GH3",
+  GH4 = "SCC_GH4",
+  GH6 = "SCC_GH6"
+)
+
+var_labels_PM25 <- c(
+  AMF245 = "AMF_2450229",
+  DFR1027 = "DFR_1027A",
+  DFR1063 = "DFR_1063A",
+  GH3 = "SCC_GH3",
+  GH6 = "SCC_GH6"
+)
+
+#order sensors to match tables in thesis
+sensor_order_NO2  <- c("GH4",'DFR1027','GH6','DFR1063','GH3')
+sensor_order_PM25 <- c("AMF245",'DFR1027','GH6','DFR1063','GH3')
+sensor_order_TF <- c("CAZ interior road","A61 Ring Road","A61","A6109","A57",
+                     'A6135','A625','A621','B6069','B6388','B6547')
 
 # plot grouped boxplot of pollutant concentrations before and after CAZ start
 
 plot_caz_boxplot <- function(AQ_norm_list, start_date = CAZ_start, pollutant){
   pol  <- toupper(pollutant)
   lst  <- AQ_norm_list[str_detect(toupper(names(AQ_norm_list)), paste0("(^|_)", pol, "$"))]
+  labels <- if (pol == 'NO2') var_labels_NO2 else var_labels_PM25
+  sensor_order <- if (pol == 'NO2') sensor_order_NO2 else sensor_order_PM25
   
   df <- imap_dfr(lst, ~ tibble(
     sensor = str_remove(.y, "_[^_]+$"),
@@ -81,16 +121,18 @@ plot_caz_boxplot <- function(AQ_norm_list, start_date = CAZ_start, pollutant){
   
   ggplot(df, aes(x = sensor, y = value, fill = period)) +
     geom_boxplot(position = position_dodge(width = 0.8)) +
-    scale_x_discrete(guide = guide_axis(angle = 90)) +
     labs(
       x = "Sensor",
-      y = 'Mean normalised daily concentration',
+      y = 'Mean normalised daily concentration (ug/m3)',
       fill = "Period"
     ) +
-    theme_ipsum_rc(grid = 'Yy') +
+    theme_ipsum_rc(grid = 'Yy', axis_text_size = 10, axis_title_size = 10) +
     theme(panel.border = element_rect(color = "grey40",
                                       fill = NA,
-                                      size = 0.8))
+                                      size = 0.8)) +
+    scale_x_discrete(limits = sensor_order, labels = labels,
+                     guide = guide_axis(angle = 90))
+         
 }
 # plot the grouped boxplot
 plot_caz_boxplot(AQ_norm_list, pollutant = 'NO2')
@@ -113,7 +155,6 @@ plot_caz_traffic_boxplot <- function(traffic_norm_list, start_date = CAZ_start) 
     }) |>
     ggplot(aes(x = road, y = cars_per_day, fill = period)) +
     geom_boxplot(position = position_dodge(width = 0.8)) +
-    scale_x_discrete(guide = guide_axis(angle = 90)) +
     labs(
       x     = "Road",
       y     = "Daily mean cars/hour",
@@ -122,7 +163,9 @@ plot_caz_traffic_boxplot <- function(traffic_norm_list, start_date = CAZ_start) 
     theme_ipsum_rc(grid = 'Yy') +
     theme(panel.border = element_rect(color = "grey40",
                                       fill = NA,
-                                      size = 0.8))
+                                      size = 0.8)) +
+    scale_x_discrete(limits = sensor_order_TF, labels = var_labels_tf,
+                     guide = guide_axis(angle = 90))
 }
 
 
@@ -132,55 +175,44 @@ plot_caz_traffic_boxplot(traffic_norm_list)
 
 #normalised time series
 
-#nice labels for the charts
-var_labels_NO2 <- c(
-  DFR1027 = "DFR_1027A",
-  DFR1063 = "DFR_1063A",
-  GH3 = "SCC_GH3",
-  GH4 = "SCC_GH4",
-  GH6 = "SCC_GH6"
-)
-
-var_labels_PM25 <- c(
-  AMF245 = "AMF_2450229",
-  DFR1027 = "DFR_1027A",
-  DFR1063 = "DFR_1063A",
-  GH3 = "SCC_GH3",
-  GH6 = "SCC_GH6"
-)
-
 
 #facet plot of normalised air quality time series from AQ_norm_list
-facet_plot_by_pollutant <- function(AQ_norm_list, pollutant, pol_label){
+facet_plot_by_pollutant <- function(AQ_norm_list, pollutant, pol_label, order){
   
   pol <- toupper(pollutant)
   nm  <- names(AQ_norm_list)
+  sensor_order <- order
+  
   
   # keep only elements whose name ends with "_<pollutant>"
   keep_idx <- str_detect(toupper(nm), regex(paste0("(^|_)", pol, "$"), ignore_case = TRUE))
   lst <- AQ_norm_list[keep_idx]
   
   df <- imap_dfr(lst, ~ tibble(
-    sensor = str_remove(.y, "_[^_]+$"),     # drop pollutant suffix
+    sensor = str_remove(.y, "_[^_]+$"),    
     t      = .x$normalised$t,
     value  = .x$normalised$mean_value
   )) |>
-    drop_na(t, value)
+    mutate(sensor = factor(sensor, levels = sensor_order)) |>
+    mutate(Location = if_else(sensor %in% c("GH4", "DFR1027", 'GH6','AMF245'), "CAZ", "Spillover"))
+    
   
-  ggplot(df, aes(t, value, group = sensor)) +
+  ggplot(df, aes(t, value, group = sensor, color = Location)) +
     geom_line() +
-    facet_wrap(~ sensor, scales = "free_y", ncol = 5,
+    facet_wrap(~sensor, scales = "free_y", ncol = 5,
                labeller = as_labeller(pol_label)) +
     scale_y_continuous(limits = c(0, NA),
                        expand = expansion(mult = c(0, .05))) +
-    geom_vline(xintercept = 0, linetype = 'dashed', color = 'red') +
+    geom_vline(xintercept = 0, linetype = 'dashed', color = 'grey30') +
     labs(x = 'Days before/after CAZ introduction',
          y = 'Normalised pollutant concentration (ug/m3)') +
-    theme_ipsum_rc(axis_title_size = 9, axis_text_size = 8)
+    scale_colour_manual(values = c("CAZ" = "darkred", "Spillover" = "darkblue")) +
+    theme_ipsum_rc(axis_title_size = 9, axis_text_size = 8) +
+    theme(legend.position = "bottom", legend.title = element_blank())
 }
 
-facet_plot_by_pollutant(AQ_norm_list, "NO2", var_labels_NO2)
-facet_plot_by_pollutant(AQ_norm_list, "PM25", var_labels_PM25)
+facet_plot_by_pollutant(AQ_norm_list, "NO2", var_labels_NO2, sensor_order_NO2)
+facet_plot_by_pollutant(AQ_norm_list, "PM25", var_labels_PM25, sensor_order_PM25)
 
 
 #facet plot of normalised traffic time series
@@ -191,17 +223,22 @@ facet_plot_traffic <- function(traffic_norm_list){
     road = .y,
     t    = .x$normalised_daily$t,
     value = .x$normalised_daily$cars_per_day
-  )) 
+  )) |>
+    mutate(road = factor(road, levels = sensor_order_TF)) |>
+    mutate(Location = if_else(road %in% c("CAZ interior road", 'A61 Ring Road'), 
+                              "CAZ", "Spillover"))
   
-  ggplot(df, aes(t, value, group = road)) +
+  ggplot(df, aes(t, value, group = road, color = Location)) +
     geom_line() +
     facet_wrap(~ road, scales = "free_y") +
     scale_y_continuous(limits = c(0, NA),
                        expand = expansion(mult = c(0, .05))) +
-    geom_vline(xintercept = 0, linetype = 'dashed', color = 'red') +
+    geom_vline(xintercept = 0, linetype = 'dashed', color = 'grey30') +
     labs(x = 'Days before/after CAZ introduction',
-         y = 'Normalised daily mean cars/hour)') +
-    theme_ipsum_rc(axis_title_size = 12, axis_text_size = 8)
+         y = 'Normalised daily mean cars/hour') +
+    scale_colour_manual(values = c("CAZ" = "darkred", "Spillover" = "darkblue")) +
+    theme_ipsum_rc(axis_title_size = 9, axis_text_size = 8) +
+    theme(legend.position = "bottom", legend.title = element_blank())
 }
 
 facet_plot_traffic(traffic_norm_list)

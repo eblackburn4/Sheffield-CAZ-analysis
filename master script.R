@@ -5,23 +5,26 @@
 ## Date Created: 2025-08-02
 
 options(scipen = 6, digits = 5) 
-library(tidyverse)
-library(hrbrthemes)
-library(rdrobust)
-library(rmweather) #for meteorological normalisation
-library(ranger) #dependency for rmweather
-library(weathermetrics) #for calculating humidity from dewpoint
-library(patchwork)
-library(ggthemes)
 library(ggmap)
-library(jsonlite)
-library(sf)
+library(ggpattern)
 library(ggrepel)
+library(ggsflabel)
+library(ggthemes)
+library(hrbrthemes)
+library(jsonlite)
+library(osmdata)
+library(patchwork)
+library(ranger)
+library(rdpower)
+library(rdrobust)
+library(rmweather)
+library(scico)
+library(sf)
+library(tidyverse)
+library(weathermetrics)
+library(zoo)
 
 ## ---------------------------
-
-#set random seed to ensure reproducibility of weather normalisation/RDD models
-set.seed(9999)
 
 source("Mapping code.R")
 source("data exploration.R")

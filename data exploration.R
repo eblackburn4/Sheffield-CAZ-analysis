@@ -175,7 +175,16 @@ master_tf_join <- tf_sensor_df_ll |>
 #remove unneeded datasets
 rm(traffic_raw)
 
-#check presence of NAs
+##check for NAs at the road level (min two reading per hour to not be NA)
+tf_NA_check <- master_tf_join |>
+  inner_join(sensor_to_road_RDD, by = "sensorID") |>
+  ungroup() |>
+  group_by(ref) |>
+  complete(DateTime = seq(min(DateTime), max(DateTime), by = "30 min")) |>
+  summarise(
+    Is_NA = mean(is.na(flow)*100),
+    complete = 100 - Is_NA
+  )
 
 #aggregate the traffic data to be per hour by grouping the timestamps into hourly bins
 #so it can be weather-normalised
@@ -192,16 +201,6 @@ master_tf_join_hourly <- master_tf_join |>
 
 rm(master_tf_join)
 
-#check for NAs at the road level (min two reading per hour to not be NA)
-master_tf_join |>
-  inner_join(sensor_to_road_RDD, by = "sensorID") |>
-  ungroup() |>
-  group_by(ref) |>
-  complete(DateTime = seq(min(DateTime), max(DateTime), by = "30 min")) |>
-  summarise(
-    Is_NA = mean(is.na(flow)*100),
-    complete = 100 - Is_NA
-  )
 
   
 # recreate maps with only included sensors --------------------------------
@@ -251,7 +250,7 @@ basemap +
                      values = c("Inside CAZ" = "darkred", 
                                 "CAZ Adjacent" = "darkblue")) +
   theme_void() +
-  theme(legend.position = "bottom",
+  theme(legend.position = "none",
         legend.title = element_blank()) 
 
 basemap +
@@ -278,7 +277,7 @@ basemap +
                      values = c("Inside CAZ" = "darkred", 
                                 "CAZ Adjacent" = "darkblue")) +
   theme_void() +
-  theme(legend.position = "bottom",
+  theme(legend.position = "none",
         legend.title = element_blank())
 
 
@@ -309,7 +308,7 @@ basemap +
                      values = c("primary" = "darkblue", 
                                 "secondary" = "limegreen")) +
   theme_void() +
-  theme(legend.position = "bottom",
+  theme(legend.position = "none",
         legend.title = element_blank(),
         legend.text = element_text(size = 8, family = 'Roboto condensed'))
 

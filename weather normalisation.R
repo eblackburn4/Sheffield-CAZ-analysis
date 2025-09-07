@@ -4,14 +4,6 @@
 ## Author: Ned Blackburn
 ## Date Created: 2025-07-12
 
-options(scipen = 6, digits = 5) 
-library(tidyverse)
-library(hrbrthemes) #nice graphs
-library(rmweather) #for meteorological normalisation
-library(ranger) #dependency for rmweather
-library(weathermetrics) #for calculating humidity from dewpoint
-library(patchwork)
-
 set.seed(9999) #for reproducibility of random forest model
 ## ---------------------------
 
@@ -213,9 +205,7 @@ daily_avg_traffic <- function(road) {
     summarise(cars_per_day = mean(value_predict, na.rm = TRUE),
               .groups = "drop") |>
     complete(day = seq(min(day), max(day), by = "day")) |>
-    mutate(
-      cars_per_day   = na.approx(cars_per_day, x = day, na.rm = FALSE),
-      t = as.numeric(day - CAZ_start)
+    mutate(t = as.numeric(day - CAZ_start)
     )       
   road
 }
