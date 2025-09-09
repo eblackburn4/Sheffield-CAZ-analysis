@@ -1,10 +1,3 @@
-# data imputation
-# mutate(
-#   mean_value   = na.approx(mean_value,   x = day, na.rm = FALSE),
-#   median_value = na.approx(median_value, x = day, na.rm = FALSE),
-#   t = as.numeric(day - CAZ_start))
-
-
 
 ## ---------------------------
 ## Purpose of script: RDD analysis of AQ and traffic data
@@ -142,7 +135,7 @@ DFR1027_PM25_RDD <- RDD_AQ_fn(DFR1027_PM25, donut_hole = 0)
 DFR1063_NO2_RDD <- RDD_AQ_fn(DFR1063_NO2, donut_hole = 0)
 DFR1063_PM25_RDD <- RDD_AQ_fn(DFR1063_PM25, donut_hole = 0)
 GH6_NO2_RDD <- RDD_AQ_fn(GH6_NO2, donut_hole = 0)
-GH6_PM25_RDD_test <- RDD_AQ_fn(GH6_PM25, h=30, donut_hole = 30)
+GH6_PM25_RDD <- RDD_AQ_fn(GH6_PM25, donut_hole = 0)
 GH3_NO2_RDD <- RDD_AQ_fn(GH3_NO2, donut_hole = 0)
 GH3_PM25_RDD <- RDD_AQ_fn(GH3_PM25, donut_hole = 0)
 AMF_PM25_RDD <- RDD_AQ_fn(AMF245_PM25, donut_hole = 0)

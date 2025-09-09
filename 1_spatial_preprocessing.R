@@ -4,18 +4,6 @@
 ## Author: Ned Blackburn
 ## Date Created: 2025-03-19
 
-options(scipen = 6, digits = 5) 
-library(tidyverse)
-library(hrbrthemes)
-library(ggthemes)
-library(ggmap)
-library(jsonlite)
-library(sf)
-library(ggrepel)
-library(nngeo)
-library(osmdata)
-
-
 # map of sensor locations -------------------------------------------------
 # this code generates a map of the CAZ boundary and sensor locations in Sheffield
 #make base map

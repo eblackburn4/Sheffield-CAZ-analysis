@@ -4,10 +4,6 @@
 ## Author: Ned Blackburn
 ## Date Created: 2025-08-24
 
-options(scipen = 6, digits = 5) 
-library(tidyverse)
-library(hrbrthemes)
-
 
 
 # Example plots of norm vs non norm timeseries -----------------------------
@@ -96,6 +92,12 @@ var_labels_PM25 <- c(
   GH3 = "SCC_GH3",
   GH6 = "SCC_GH6"
 )
+
+var_labels_tf <- c(
+  date_unix       = "Trend (Unix time)",
+  day_julian      = "Day of year",
+  weekday         = "Day of week",
+  hour            = "Hour of day")
 
 #order sensors to match tables in thesis
 sensor_order_NO2  <- c("GH4",'DFR1027','GH6','DFR1063','GH3')
@@ -261,12 +263,6 @@ var_labels <- c(
   wd_dir          = "Wind direction (degrees)",
   rel_hum         = "Relative humidity (%)"
 )
-
-var_labels_tf <- c(
-  date_unix       = "Trend (Unix time)",
-  day_julian      = "Day of year",
-  weekday         = "Day of week",
-  hour            = "Hour of day")
 
 
 rmw_aggregated_NO2 <- master_aq_ERA5 |>

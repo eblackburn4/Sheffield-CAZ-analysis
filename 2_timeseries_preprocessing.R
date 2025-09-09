@@ -4,13 +4,6 @@
 ## Author: Ned Blackburn
 ## Date Created: 2025-06-27
 
-options(scipen = 6, digits = 5) 
-library(tidyverse)
-library(hrbrthemes)
-library(rmweather)
-library(ggthemes)
-library(ggsflabel)
-
 ## ---------------------------
 
 # read in and QA air quality data from each sensor family --------------------------------------------------------
