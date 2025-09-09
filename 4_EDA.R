@@ -1,6 +1,11 @@
 
 ## ---------------------------
 ## Purpose of script: EDA
+##
+## Key outputs: 
+## - aq_EDA_stats: summary statistics for air quality sensors/pollutants pre/post CAZ
+## - tf_EDA_stats: summary statistics for traffic sensors pre/post CAZ
+## 
 ## Author: Ned Blackburn
 ## Date Created: 2025-08-24
 
@@ -8,13 +13,13 @@
 
 # Example plots of norm vs non norm timeseries -----------------------------
 
-GH4_NO2$normalised |>
+Figure_5_1 <- GH4_NO2$normalised |>
   ggplot(aes(x = date, y = value_predict)) +
   geom_line() +
   theme_ipsum_rc(grid = 'XY',axis_title_size = 10, axis_text_size = 10) +
   labs(x = 'Date', y = 'Hourly normalised pollutant concentration (ug/m3)')
 
-GH4_NO2$observations |>
+Figure_5_2 <- GH4_NO2$observations |>
   ggplot(aes(x = date, y = value)) +
   geom_line() +
   theme_ipsum_rc(grid = 'XY',axis_title_size = 10, axis_text_size = 10) +
@@ -137,8 +142,8 @@ plot_caz_boxplot <- function(AQ_norm_list, start_date = CAZ_start, pollutant){
          
 }
 # plot the grouped boxplot
-plot_caz_boxplot(AQ_norm_list, pollutant = 'NO2')
-plot_caz_boxplot(AQ_norm_list, pollutant = 'PM25')
+Figure_7_1 <- plot_caz_boxplot(AQ_norm_list, pollutant = 'NO2')
+Figure_7_2 <- plot_caz_boxplot(AQ_norm_list, pollutant = 'PM25')
 
 
 #grouped boxplot of traffic sensor readings before and after CAZ start
@@ -172,7 +177,7 @@ plot_caz_traffic_boxplot <- function(traffic_norm_list, start_date = CAZ_start) 
 
 
 # plot the grouped boxplot
-plot_caz_traffic_boxplot(traffic_norm_list)
+Figure_8 <- plot_caz_traffic_boxplot(traffic_norm_list)
 
 
 #normalised time series
@@ -213,8 +218,8 @@ facet_plot_by_pollutant <- function(AQ_norm_list, pollutant, pol_label, order){
     theme(legend.position = "bottom", legend.title = element_blank())
 }
 
-facet_plot_by_pollutant(AQ_norm_list, "NO2", var_labels_NO2, sensor_order_NO2)
-facet_plot_by_pollutant(AQ_norm_list, "PM25", var_labels_PM25, sensor_order_PM25)
+Figure_9_1 <- facet_plot_by_pollutant(AQ_norm_list, "NO2", var_labels_NO2, sensor_order_NO2)
+Figure_9_2 <- facet_plot_by_pollutant(AQ_norm_list, "PM25", var_labels_PM25, sensor_order_PM25)
 
 
 #facet plot of normalised traffic time series
@@ -243,7 +248,7 @@ facet_plot_traffic <- function(traffic_norm_list){
     theme(legend.position = "bottom", legend.title = element_blank())
 }
 
-facet_plot_traffic(traffic_norm_list)
+Figure_10 <- facet_plot_traffic(traffic_norm_list)
 
 
 # # combined weather diagnostics: AQ  --------
@@ -288,7 +293,7 @@ rmw_aggregated_NO2 <- master_aq_ERA5 |>
   )
 
 #variable importance plot (NO2)
-rmw_aggregated_NO2$model |>
+FigureA2_1 <- rmw_aggregated_NO2$model |>
   rmw_model_importance() |> 
   rmw_plot_importance() +
   theme_ipsum_rc(axis_title_size = 12) +
@@ -304,7 +309,7 @@ NO2_partial <- rmw_partial_dependencies(
 
 NO2_partial$facet$params$labeller <- ggplot2::as_labeller(var_labels)
 
-NO2_partial + 
+Figure_A2_21 <- NO2_partial + 
   labs(x = 'Variable', y = 'Partial dependency') + 
   theme_ipsum_rc(axis_title_size = 12, axis_text_size = 8)
   
@@ -353,7 +358,7 @@ PM25_partial <- rmw_partial_dependencies(
 
 PM25_partial$facet$params$labeller <- ggplot2::as_labeller(var_labels)
 
-PM25_partial + 
+Figure_A2_22 <- PM25_partial + 
   labs(x = 'Variable', y = 'Partial dependency') + 
   theme_ipsum_rc(axis_title_size = 12, axis_text_size = 8)
 
@@ -377,7 +382,7 @@ pred_df_aq <- imap_dfr(AQ_norm_list, function(sensor_norm, nm) {
     ))
   
 #NO2 plot
-pred_df_aq |>
+Figure_A3_21 <- pred_df_aq |>
   filter(pollutant == 'NO2') |>
   ggplot(aes(x = value, y = value_predict)) +
   geom_hex(fill = 'darkblue') +
@@ -390,7 +395,7 @@ pred_df_aq |>
   theme(legend.position = "none",
         strip.text = element_text(size = 10))
 
-pred_df_aq |>
+Figure_A3_22 <- pred_df_aq |>
   filter(pollutant == 'PM2.5') |>
   filter(value < 350) |>
   ggplot(aes(x = value, y = value_predict)) +
@@ -424,7 +429,7 @@ rmw_aggregated_traffic <- master_tf_join_hourly |>
   )
 
 #variable importance plot (traffic)
-rmw_aggregated_traffic$model |>
+Figure_A2_13 <- rmw_aggregated_traffic$model |>
   rmw_model_importance() |> 
   rmw_plot_importance() +
   theme_ipsum_rc(axis_title_size = 12) +
@@ -441,7 +446,7 @@ tf_partial <- rmw_partial_dependencies(
 
 tf_partial$facet$params$labeller <- ggplot2::as_labeller(var_labels_tf)
 
-tf_partial + 
+Figure_A2_23 <- tf_partial + 
   labs(x = 'Variable', y = 'Partial dependency') + 
   theme_ipsum_rc(axis_title_size = 12, axis_text_size = 8)
 
@@ -457,7 +462,7 @@ pred_df_tf <- imap_dfr(traffic_norm_list, function(sensor_norm, nm) {
   out
 }) 
 
-pred_df_tf |>
+Figure_A2_33 <- pred_df_tf |>
   ggplot(aes(x = value, y = value_predict)) +
   geom_hex(fill = 'darkgreen') +
   geom_abline(slope = 1, intercept = 0) +

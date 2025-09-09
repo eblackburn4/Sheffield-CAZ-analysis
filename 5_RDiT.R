@@ -1,6 +1,19 @@
 
 ## ---------------------------
 ## Purpose of script: RDD analysis of AQ and traffic data
+##
+## Key outputs: 
+## - AQ_RDD_list: list of air quality dataframes for each sensor/pollutant pair with RDD model info
+## - AQ_RDD_summary: summary table of RDD estimators for each sensor/pollutant pair with metadata
+## - Traffic_RDD_list: list of traffic dataframes for each road with RDD model info
+## - traffic_RDD_df: summary table of RDD estimators for each road with metadata
+## - donut_sensitivity_aq: table of RDD estimators for each sensor/pollutant pair and donut hole size
+## - donut_sensitivity_tf: table of RDD estimators for each road and donut hole size
+## - aq_sharp_pooled: pooled sharp RDD estimates for NO2 and PM2.5
+## - tf_sharp_pooled: pooled sharp RDD estimates for traffic
+## - aq_donut_pooled: pooled donut RDD estimates for NO2 and PM2.5
+## - tf_donut_pooled: pooled donut RDD estimates for traffic
+##
 ## Author: Ned Blackburn
 ## Date Created: 2025-07-26
 
@@ -202,7 +215,7 @@ AQ_RDD_summary <- extract_coefs(AQ_RDD_list) |>
 #forest plot of the estimators
 shape_map <- c('ns' = 1, "p < 0.05" = 17)
 
-ggplot(AQ_RDD_summary, aes(y = sensor, x = coef, colour = type, shape = sig_95)) +
+Figure_11 <- ggplot(AQ_RDD_summary, aes(y = sensor, x = coef, colour = type, shape = sig_95)) +
   geom_point(size = 3.5) +
   geom_errorbar(aes(xmin = ci_lower, xmax = ci_upper), 
                 width = 0.2, size = 0.6) + 
@@ -322,7 +335,7 @@ forest_plot_donut_aq <- function(df, pol) {
           legend.position = "none")
 }
 
-forest_plot_donut_aq(donut_sensitivity_aq, "NO2") +
+Figure_12_1 <- forest_plot_donut_aq(donut_sensitivity_aq, "NO2") +
   scale_y_discrete(limits = c('GH3', 'DFR1063','GH6','DFR1027','GH4'),
                    labels = c(
                      "GH3"    = "SCC_GH3",
@@ -331,7 +344,7 @@ forest_plot_donut_aq(donut_sensitivity_aq, "NO2") +
                      "DFR1063"= "DFR_1063A",
                      "GH4"    = "SCC_GH4"))
 
-forest_plot_donut_aq(donut_sensitivity_aq, "PM25") +
+Figure_12_2 <- forest_plot_donut_aq(donut_sensitivity_aq, "PM25") +
   scale_y_discrete(limits = c('GH3', 'DFR1063','GH6','DFR1027','AMF245'),
                    labels = c(
                      "GH3"    = "SCC_GH3",
@@ -471,7 +484,7 @@ traffic_RDD_df <- map_dfr(traffic_RDD_list, function(road) {
 
 
 #forest plot
-ggplot(traffic_RDD_df, aes(x = coef, y = sensor, color = category)) +
+Figure_13 <- ggplot(traffic_RDD_df, aes(x = coef, y = sensor, color = category)) +
   geom_point(size = 3, aes(shape = significant)) +
   geom_errorbarh(aes(xmin = ci_lower, xmax = ci_upper), 
                 height = 0.2, size = 0.8) +  
@@ -565,7 +578,7 @@ tf_donut_sensitivity <- RDD_donut_sensitivity_tf(traffic_RDD_list) |>
 
 #forest plot for traffic donut
 
-tf_donut_sensitivity |>
+Figure_15 <- tf_donut_sensitivity |>
     ggplot(aes(x =coef, y = sensor, colour = category, shape = sig_lab)) +
     geom_errorbarh(aes(xmin = ci_lower, xmax = ci_upper), height = 0.2, linewidth = 0.8) +
     geom_point(size = 3, stroke = 1.5) +
@@ -600,7 +613,7 @@ roads_map_RDD_coefs <- roads_map_RDD |>
 
 #plot only significant coefs on the map
 
-basemap +
+Figure_14 <- basemap +
   geom_sf(data = roads_map_RDD_coefs,
           aes(color = pct_change),
           inherit.aes = FALSE, linewidth = 1.1) +

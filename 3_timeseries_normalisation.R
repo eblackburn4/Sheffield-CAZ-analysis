@@ -1,6 +1,12 @@
 
 ## ---------------------------
 ## Purpose of script: weather normalisation
+## 
+## Key outputs: 
+## - master_aq_ERA5: air quality data with joined ERA5 weather data
+## - AQ_norm_list: list of normalised air quality dataframes for each sensor/pollutant pair with rmweather model info
+## - traffic_norm_list: list of normalised traffic dataframes for each road with rmweather model info
+## 
 ## Author: Ned Blackburn
 ## Date Created: 2025-07-12
 
@@ -69,53 +75,6 @@ weather_norm <- function(sensor, pollutant){
       verbose = TRUE,
       se = FALSE
     )
-}
-
-
-#function for rmweather diagnostic plots
-
-norm_plots <- function(sensor_norm) {
-  var_imp <- sensor_norm$model |>
-    rmw_model_importance() |> 
-    rmw_plot_importance()
-    labs(
-      title = paste('Variable Importance')
-    )
-    
-  pred_vs_act <- rmw_predict_the_test_set(
-    model = sensor_norm$model,
-    df = sensor_norm$observations
-  ) |>
-    rmw_plot_test_prediction()  +
-    labs(
-      title = paste('Predicted v actuals')
-    ) 
-  
-  norm_obs <- rmw_plot_normalised(sensor_norm$normalised) +
-    geom_vline(xintercept = as.POSIXct('2023-02-27 00:00:00', tz = "UTC"), 
-               linetype = 'dashed', color = 'red') +
-    labs(title = 'Deweathered observations')
-  
- raw_obs <- ggplot(data = sensor_norm$observations, aes(x = date, y = value)) +
-    geom_line() +
-    labs(
-      x = "Date",
-      y = "Pollutant",
-      title = 'Raw observations'
-    ) 
- 
- part_dep <- rmw_partial_dependencies(
-   model = sensor_norm$model, 
-   df = sensor_norm$observations,
-   variable = NA
- ) |>
-   filter(variable != "date_unix") |>
-   rmw_plot_partial_dependencies() +
-   labs(title = 'partial dependencies')
- 
-pwork <- (var_imp + pred_vs_act) / (norm_obs + raw_obs)
-print(pwork)
-print(part_dep)
 }
 
 #generate normalised time series for each pollutant/sensor pair

@@ -1,6 +1,12 @@
 
 ## ---------------------------
 ## Purpose of script: sensitivity analysis for sharp RDD: traffic and AQ
+##
+## Key outputs: 
+## - AQ_bw_test_summary: summary table of bandwidth sensitivity test results for each sensor/pollutant pair 
+## - TF_bw_test_summary: summary table of bandwidth sensitivity test results for each road 
+## - AQ_MDE_table: summary table of MDEs for each sensor/pollutant pair 
+##
 ## Author: Ned Blackburn
 ## Date Created: 2025-08-19
 
@@ -111,7 +117,7 @@ plot_heatmap <- function(df_pollutant, title_lab = "") {
 
 # split and plot with y axis labels to match sensor names
 
-plot_heatmap(AQ_bw_test_summary |> filter(pollutant == 'NO2')) +
+Figure_16_1 <- plot_heatmap(AQ_bw_test_summary |> filter(pollutant == 'NO2')) +
    scale_y_discrete(limits = c('GH3', 'DFR1063','GH6','DFR1027','GH4'),
                     labels = c(
                     "GH3"    = "SCC_GH3",
@@ -121,7 +127,7 @@ plot_heatmap(AQ_bw_test_summary |> filter(pollutant == 'NO2')) +
                     "GH4"    = "SCC_GH4"))
        
   
-plot_heatmap(AQ_bw_test_summary |> filter(pollutant == 'PM25')) +
+Figure_16_2 <- plot_heatmap(AQ_bw_test_summary |> filter(pollutant == 'PM25')) +
   scale_y_discrete(limits = c('GH3', 'DFR1063','GH6','DFR1027','AMF245'),
                    labels = c(
                      "GH3"    = "SCC_GH3",
@@ -131,7 +137,7 @@ plot_heatmap(AQ_bw_test_summary |> filter(pollutant == 'PM25')) +
                      "AMF245"    = "AMF_2450229"))
 
 #heatmap for traffic
-plot_heatmap(TF_bw_test_summary) +
+Figure_17 <- plot_heatmap(TF_bw_test_summary) +
   scale_y_discrete(limits = rev(sensor_order_TF),
                    labels = rev(sensor_order_TF)) +
   labs(y = 'Road')

@@ -1,6 +1,12 @@
 
 ## ---------------------------
 ## Purpose of script: code for generation of maps in dissertation
+## 
+## Key outputs: 
+## - aq_sensor_meta: metadata for all AQ sensors
+## - tf_sensor_meta: metadata for all traffic sensors
+## - sensor_to_road_RDD: traffic sensors matched to major roads
+## 
 ## Author: Ned Blackburn
 ## Date Created: 2025-03-19
 
@@ -58,18 +64,18 @@ read_sensor_meta <- function(fn) {
 }
 
 df_sensor_meta <- do.call(rbind, lapply(json_sensor_meta, read_sensor_meta))
-all_sensor_meta <- rbind(SCC_sensor_meta, df_sensor_meta)
+aq_sensor_meta <- rbind(SCC_sensor_meta, df_sensor_meta)
 
 #load in traffic sensor metadata
-traffic_sensor_meta <- read_csv("Data/Sensormeta/traffic_meta.csv") |>
+tf_sensor_meta <- read_csv("Data/Sensormeta/traffic_meta.csv") |>
   select(sensorID, lon = 'long_[deg]', lat = 'lat_[deg]')
 
 # build CAZ adjacent polygon map ----------------------------------------------
 # This code builds a 1000 m buffer around the CAZ boundary line and identifies sensors within that buffer.
 
 #create sf objects with AQ/traffic sensors and CAZ boundary
-aq_sensor_sf <- st_as_sf(all_sensor_meta, coords = c("lon", "lat"), crs = 4326)
-tf_sensor_sf <- st_as_sf(traffic_sensor_meta, coords = c("lon", "lat"), crs = 4326)
+aq_sensor_sf <- st_as_sf(aq_sensor_meta, coords = c("lon", "lat"), crs = 4326)
+tf_sensor_sf <- st_as_sf(tf_sensor_meta, coords = c("lon", "lat"), crs = 4326)
 
 caz_polygon <- st_polygon(list(as.matrix(df_polygon[, c("lon", "lat")])))
 caz_sf      <- st_sfc(caz_polygon, crs = 4326) |> st_sf()
@@ -129,17 +135,17 @@ df_caz     <- sf_to_df(caz_ll)
 df_ring    <- sf_to_df(ring_ll)
 
 # 4) pull lon/lat + category out of aq_sensor_ll/tf_sensor_ll
-aq_sensor_df_ll <- aq_sensor_ll %>%
+aq_sensor_df_ll <- aq_sensor_ll |>
   mutate(coords = st_coordinates(geometry),
          lon = coords[,1],
-         lat = coords[,2]) %>%
+         lat = coords[,2]) |>
   st_drop_geometry()
 
-tf_sensor_df_ll <- tf_sensor_ll %>%
+tf_sensor_df_ll <- tf_sensor_ll |>
   mutate(coords = st_coordinates(geometry),
          lon = coords[,1],
          lat = coords[,2],
-         sensorID = str_replace_all(sensorID, "[^[:alnum:]]", "")) %>%
+         sensorID = str_replace_all(sensorID, "[^[:alnum:]]", "")) |>
   st_drop_geometry()
 
 # plot aq on basemap
@@ -203,7 +209,6 @@ basemap +
 # traffic sensor road matching --------------------------------------------
 #this section uses OSM data to match sensors to major roads around the CAZ
  
-
 #Get OSM roads around the CAZ (bbox of the outer ring) and within the CAZ, keep relevant classes, project to metric coords
 
 bb <- st_bbox(st_transform(caz_outer_ring, 4326))
@@ -340,7 +345,7 @@ bbox_ll <- st_as_sfc(st_bbox(c(xmin = sheffield[1], ymin = sheffield[2],
 roads_map <- st_crop(roads_map, bbox_ll)
 caz_ll       <- st_intersection(caz_ll, bbox_ll)
 
-# Plot roads over the basemap 
+# Plot all roads over the basemap 
 basemap +
   geom_sf(data = roads_map,
           aes(color = high_cat),

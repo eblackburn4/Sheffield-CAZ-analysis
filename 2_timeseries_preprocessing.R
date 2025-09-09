@@ -1,6 +1,12 @@
 
 ## ---------------------------
 ## Purpose of script: data exploration and preparation code for dissertation
+## 
+## Key outputs: 
+## - master_aq_join: air quality data from all sensors joined to metadata and filtered for CAZ-adjacent sensors with at least 6 months of data
+## - master_tf_join_hourly: traffic flow data from all sensors joined to metadata, filtered for CAZ-adjacent sensors with at least 6 months of data, and aggregated to hourly counts
+## - roads_map_RDD: spatial data for roads with traffic sensors included in the study
+## 
 ## Author: Ned Blackburn
 ## Date Created: 2025-06-27
 
@@ -208,7 +214,7 @@ aq_sensor_df_ll_RDD <- aq_sensor_df_ll |>
 tf_sensor_df_ll_RDD <- tf_sensor_df_ll |>
   filter(sensorID %in% master_tf_join_hourly$sensorID)
 
-basemap +
+Figure_3 <-basemap +
   geom_polygon(
     data    = df_ring,
     aes(x    = lon, y = lat, group = group),
@@ -246,7 +252,7 @@ basemap +
   theme(legend.position = "none",
         legend.title = element_blank()) 
 
-basemap +
+Figure_4_1 <- basemap +
   geom_polygon(
     data    = df_ring,
     aes(x    = lon, y = lat, group = group),
@@ -278,7 +284,7 @@ basemap +
 roads_map_RDD <- roads_map |>
   filter(ref %in% master_tf_join_hourly$ref) 
   
-basemap +
+Figure_4_2 <- basemap +
   geom_sf(data = roads_map_RDD,
           aes(color = high_cat),
           inherit.aes = FALSE, linewidth = 0.9) +
