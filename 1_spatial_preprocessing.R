@@ -19,7 +19,7 @@ basemap <- get_stadiamap(sheffield, zoom = 15, maptype="stamen_toner_lite") |> g
 
 #read in CAZ json
 
-polygon_data <- fromJSON("mapfinal.geojson")
+polygon_data <- fromJSON("Data/CAZ_map.geojson")
 
 # Extract coordinates
 
